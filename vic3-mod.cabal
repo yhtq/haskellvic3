@@ -1,0 +1,82 @@
+cabal-version:      2.4
+name:               vic3-mod
+version:            0.1.0.0
+
+-- A short (one-line) description of the package.
+-- synopsis:
+
+-- A longer description of the package.
+-- description:
+
+-- A URL where users can report bugs.
+-- bug-reports:
+
+-- The license under which the package is released.
+license: 
+    MIT
+
+license-file:       
+    LICENSE
+-- The package author(s).
+author:
+    YHTQ
+-- An email address to which users can send suggestions, bug reports, and patches.
+maintainer:
+    1414672068@qq.com
+
+-- A copyright notice.
+-- copyright:
+-- category:
+extra-source-files: CHANGELOG.md
+common profiling
+    ghc-options: 
+        -O2 
+        -fprof-auto
+        "-with-rtsopts= -p -s -hT" 
+
+common debug
+    ghc-options: 
+        -O0
+        -Wall
+common base_depends
+    build-depends:    
+        base ^>=4.16.4.0,
+        parsec,
+        transformers,
+        text,
+        containers,
+        mtl
+common other_modules
+    other-modules:
+        TestParse
+executable profile
+    import: profiling
+    import: base_depends
+    import: other_modules
+    main-is:          Main.hs
+
+    -- Modules included in this executable, other than Main.
+    -- other-modules:
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    
+    hs-source-dirs:   app
+    default-language: GHC2021
+
+executable debug
+    import: debug
+    import: base_depends
+    import: other_modules
+    build-depends:   QuickCheck
+    main-is:          Main.hs
+
+    -- Modules included in this executable, other than Main.
+    --other-modules:
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    
+    build-depends:    base ^>=4.16.4.0
+    hs-source-dirs:   app
+    default-language: GHC2021 
+
