@@ -1,5 +1,5 @@
 module Main where
-import TestParse
+import TestParse ()
 
 main :: IO ()
 main = putStrLn "Hello, Haskell!"

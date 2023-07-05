@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use <$>" #-}
 module TestParse() where
 import Prelude hiding (exp)
 import Text.Parsec
@@ -11,24 +13,35 @@ import qualified Data.Map as Map
 import Control.Monad.Identity (Identity, liftM)
 import GHC.TypeLits (ErrorMessage(Text))
 import Text.Parsec.Token (GenTokenParser(stringLiteral))
-type ParadoxMetaLanguage = Tok.GenLanguageDef Text () Identity
-type ParadoxMetaParser = Parsec Text () 
-paradoxMetaLanguage :: ParadoxMetaLanguage
-paradoxMetaLanguage = emptyDef {
+import Data.Map.Strict (fromListWithKey)
+type ParadoxLanguage = Tok.GenLanguageDef Text () Identity
+type ParadoxParser = Parsec Text () 
+paradoxLanguage :: ParadoxLanguage
+paradoxLanguage = emptyDef {
     Tok.commentStart = "#",
     Tok.commentEnd = "",
     Tok.commentLine = "#",
     Tok.nestedComments = True,
-    Tok.identStart = letter ,
+    Tok.identStart = letter <|> char '@',
     Tok.identLetter = alphaNum ,
-    Tok.opStart = oneOf "<>=",
+    Tok.opStart = oneOf "<>=?",
     Tok.opLetter = oneOf "<>=",
-    Tok.reservedNames = ["if", "else", "else_if", "limit", "switch", "while", "yes", "no", "AND", "OR", "NOT", "value", "add", "multiply", "subtract", "divide", "desc", "{", "}"] ,
-    Tok.reservedOpNames = ["<=", ">=", "<", ">", "="],
+    Tok.reservedNames = ["if", "else", "else_if", "limit", "switch", "while", 
+        "yes", "no", 
+        "AND", "OR", "NOT", 
+        "value", "add", "multiply", "subtract", "divide", "min", "max",
+        "desc", 
+        "{", "}",
+        "hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360",
+        "@["] ,
+    Tok.reservedOpNames = ["<=", ">=", "<", ">", "==", "?=", "!=", "="],
     Tok.caseSensitive = True
 
 }
+
+-- 类型定义
 type ScopeMap = Map Text Text
+type DefinitionMap = Map Text Exp
 type Undetermined = ()
 type Key = Text
 type Query = Text
@@ -37,17 +50,22 @@ data Var = Var {
     var_name :: Key,
     scope :: Text
 }
+data Color = Color {
+    colorType :: Text,
+    colorValue :: [ValueFloat]
+} deriving (Show)
 type ValueInt = Integer
 type ValueFloat = Double 
-data ValueOp = Add | Multiply | Subtract | Divide  deriving (Show)
+data ValueOp = Add | Multiply | Subtract | Divide | Min | Max deriving (Show)
 opMap :: String -> ValueOp
 opMap "add" = Add
 opMap "multiply" = Multiply
 opMap "subtract" = Subtract
 opMap "divide" = Divide
 data ValueExp a = ValueExpWithDesc Text (ValueExp a) | 
-                    ExpRaw a | 
-                    RawVar Key | 
+                    RawStaticalValue a | 
+                    RawKeyValue Key | 
+                    RawScriptedValue Text |
                     Exp ValueOp (ValueExp a) (ValueExp a) |
                     IfExp BoolExp (IfStructure a) |
                     AppendIfExp (ValueExp a) (IfStructure (ValueExpCal a))
@@ -55,7 +73,7 @@ data ValueExp a = ValueExpWithDesc Text (ValueExp a) |
 newtype ValueExpCal a = ValueExpCal (ValueExp a -> ValueExp a)
 instance (Show a, Num a) => Show (ValueExpCal a) where
     show :: (Show a, Num a) => ValueExpCal a -> String
-    show (ValueExpCal f) = showWithOutValue (f (ExpRaw 0))
+    show (ValueExpCal f) = showWithOutValue (f (RawStaticalValue 0))
 showWithOutValue :: (Show a, Num a) => ValueExp a -> String
 showWithOutValue (ValueExpWithDesc desc exp) = ""
 data IfStructure a = If BoolExp a  |
@@ -65,9 +83,9 @@ data IfStructure a = If BoolExp a  |
 type ValueIntExp = ValueExp ValueInt
 type ValueFloatExp = ValueExp ValueFloat
 class ValueNum a where
-    parseNum :: ParadoxMetaParser a
-    toValueExp :: a -> ValueExp a
-    toValueExp = ExpRaw
+    parseNum :: ParadoxParser a
+    -- toValueExp :: a -> ValueExp a
+    -- toValueExp = RawStaticalValue
     toExp :: ValueExp a -> Exp
     defaultValue :: a
 instance ValueNum ValueInt where
@@ -78,10 +96,6 @@ instance ValueNum ValueFloat where
     parseNum = parseFloat
     toExp = FromFloatExp
     defaultValue = 0.0
-data Color = Color {
-    colorType :: Text,
-    colorValue :: [ValueFloat]
-} deriving (Show)
 data ValueBool = Yes | No deriving (Show, Eq)
 data BoolOp = And | Or deriving (Show)
 data CmpOp = Less | Greater | LessEq | GreaterEq deriving (Show)
@@ -94,6 +108,10 @@ data BoolExp = BoolExp BoolOp BoolExp BoolExp |
                 BoolRaw ValueBool 
                 deriving (Show)
 data Exp = FromIntExp ValueIntExp | FromFloatExp ValueFloatExp | FromBoolExp BoolExp | FromSwitchExp Switch | FromVarExp Key | FromColor Color | FromText Text deriving (Show)
+-- data TypedExp = TypedExp {
+--     typedExp :: Exp,
+--     typedExpType :: Text
+-- } deriving (Show)
 type Limit = BoolExp
 data Switch = Switch {
     switch :: Key,
@@ -105,80 +123,106 @@ data Assignment = Assignment {
 } deriving (Show)
 data Object = Object {
     obj_name :: Text,
-    assignments :: [Assignment],
-    properties :: ScopeMap
+    assignments :: DefinitionMap   -- 定义object时给出的属性
 } deriving (Show)
-lexer = Tok.makeTokenParser paradoxMetaLanguage
+
+-- parser
+lexer = Tok.makeTokenParser paradoxLanguage
 lexeme = Tok.lexeme lexer
-parseInt :: ParadoxMetaParser ValueInt
-parseInt = lexeme $ do
+symbol = Tok.symbol lexer
+convertToText :: (Monad m) => (a -> m String) -> (a -> m Text)
+convertToText f = fmap pack.f
+
+parseIntWithSpaceLeft :: ParadoxParser ValueInt
+parseIntWithSpaceLeft = do
     sign <- option 1 (char '-' >> return (-1))
     n <- Tok.integer lexer
     return (sign * n)
-parseFloat :: ParadoxMetaParser ValueFloat
-parseFloat = lexeme $ do
+parseInt :: ParadoxParser ValueInt
+parseInt = lexeme parseIntWithSpaceLeft
+parseFloatWithSpaceLeft :: ParadoxParser ValueFloat
+parseFloatWithSpaceLeft = do
     sign <- option 1 (char '-' >> return (-1))
-    n <- Tok.float lexer
+    n <- try (Tok.float lexer) <|> fmap fromIntegral (Tok.integer lexer)
     return (sign * n)
-parseIdentifier :: ParadoxMetaParser Text
+parseFloat :: ParadoxParser ValueFloat
+parseFloat = lexeme parseFloatWithSpaceLeft
+parseWhiteSpaces :: ParadoxParser ()
+parseWhiteSpaces = Tok.whiteSpace lexer
+parseIdentifier :: ParadoxParser Text
 parseIdentifier = lexeme $
     fmap pack (Tok.identifier lexer)
-parseReserved :: String -> ParadoxMetaParser ()
+parseReserved :: String -> ParadoxParser ()
 parseReserved = lexeme.Tok.reserved lexer
-parseReservedOp :: String -> ParadoxMetaParser ()
+parseReservedWithReturn :: String -> ParadoxParser Text
+parseReservedWithReturn str = do
+    parseReserved str
+    return $ pack str
+parseReservedOp :: String -> ParadoxParser ()
 parseReservedOp = lexeme.Tok.reservedOp lexer
-parseText :: ParadoxMetaParser Text
+parseText :: ParadoxParser Text
 parseText = lexeme $ fmap pack (stringLiteral lexer)
-parseObjcet :: ParadoxMetaParser Object
+parseColor :: ParadoxParser Color
+parseColor = do
+    colorType <- choice $ map parseReservedWithReturn ["hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360"]
+    parseReservedOp "{"
+    colorValue <- sepBy parseFloatWithSpaceLeft parseWhiteSpaces
+    parseReservedOp "}"
+    return $ Color colorType colorValue
+parseObjcet :: ParadoxParser Object
 parseObjcet = do
     name <- parseIdentifier
     parseReservedOp "="
     parseReserved "{"
     assignments <- many parseAssignment
     parseReserved "}"
-    return $ Object name assignments Map.empty
-parseAssignment :: ParadoxMetaParser Assignment
+    let buildMap f = fromListWithKey f.map (\(Assignment k v) -> (k, return v :: ParadoxParser Exp))
+    let errorReport k _ _ = fail $ "duplicate key: " ++ DT.unpack k
+    let assignmentsMapParse = sequence $ buildMap errorReport assignments
+    assignmentsMap <- assignmentsMapParse
+    return $ Object name assignmentsMap
+parseAssignment :: ParadoxParser Assignment
 parseAssignment = do
     key <- parseIdentifier
     parseReservedOp "="
     value <- parseExp
     return $ Assignment key value
-parseExp :: ParadoxMetaParser Exp
+parseExp :: ParadoxParser Exp
 parseExp = do
-    parseExp <|> parseExpRaw
-parseExpRaw :: ParadoxMetaParser Exp
-parseExpRaw = do
+    parseExp <|> parseRawStaticalValue
+parseRawStaticalValue :: ParadoxParser Exp
+parseRawStaticalValue = do
     (fmap FromIntExp parseValueIntExp) 
     <|>
     (fmap FromFloatExp parseValueFloatExp) 
     -- <|> parseBoolExp <|> parseVarExp <|> parseColorExp <|> parseText
-parseExpBlock :: ParadoxMetaParser Exp
+parseExpBlock :: ParadoxParser Exp
 parseExpBlock = do
     parseReserved "{"
-    exp <- parseExpRaw
+    exp <- parseRawStaticalValue
     parseReserved "}"
     return exp
 -- ValueNumExp : ValueNumRaw | ValueNumExpBlock 
 -- ValueNumExpBlock : "{" ValueNumExp' "}"
 -- ValueNumExp' : "value"" "=" ValueNumExp | ε | ValueNumExp' ValueNumOp "=" ValueNumExp
 -- chainl 函数可以直接解析左递归的表达式，太好用了 
-parseValueIntExp :: ParadoxMetaParser ValueIntExp
-parseValueIntExp = parseValueNumExp :: ParadoxMetaParser ValueIntExp
-parseValueFloatExp :: ParadoxMetaParser ValueFloatExp
-parseValueFloatExp = parseValueNumExp :: ParadoxMetaParser ValueFloatExp
-parseValueNumExp :: (ValueNum a) => ParadoxMetaParser (ValueExp a)
+parseValueIntExp :: ParadoxParser ValueIntExp
+parseValueIntExp = parseValueNumExp :: ParadoxParser ValueIntExp
+parseValueFloatExp :: ParadoxParser ValueFloatExp
+parseValueFloatExp = parseValueNumExp :: ParadoxParser ValueFloatExp
+parseValueNumExp :: (ValueNum a) => ParadoxParser (ValueExp a)
 parseValueNumExp = do
     parseValueNumExpBlock <|> parseValueNumRaw
-parseValueNumRaw :: (ValueNum a) => ParadoxMetaParser (ValueExp a)
+parseValueNumRaw :: (ValueNum a) => ParadoxParser (ValueExp a)
 parseValueNumRaw = do
-    fmap toValueExp parseNum <|> fmap RawVar parseIdentifier
-parseValueNumExpBlock :: (ValueNum a) => ParadoxMetaParser (ValueExp a)
+    fmap RawStaticalValue parseNum <|> fmap RawKeyValue parseIdentifier <|> fmap RawScriptedValue parseText
+parseValueNumExpBlock :: (ValueNum a) => ParadoxParser (ValueExp a)
 parseValueNumExpBlock = do
     parseReserved "{"
     exp <- parseValueNumExp'
     parseReserved "}"
     return exp
-parseAppendValueNumExp :: (ValueNum a) => ParadoxMetaParser (ValueExp a -> ValueExp a)
+parseAppendValueNumExp :: (ValueNum a) => ParadoxParser (ValueExp a -> ValueExp a)
 parseAppendValueNumExp = do
                             let append' op = do 
                                         parseReservedOp "="
@@ -188,6 +232,8 @@ parseAppendValueNumExp = do
                                     <|> (do {parseReservedOp "multiply"; append' Multiply})
                                     <|> (do {parseReservedOp "subtract"; append' Subtract})
                                     <|> (do {parseReservedOp "divide"; append' Divide})
+                                    <|> (do {parseReservedOp "min"; append' Min})
+                                    <|> (do {parseReservedOp "max"; append' Max})
                                     <|> (do 
                                             parseReserved "desc"
                                             parseReservedOp "="
@@ -199,9 +245,9 @@ parseAppendValueNumExp = do
                             if (DT.null desc) then return f else return (ValueExpWithDesc desc . f)
 
 
-parseValueNumExp' :: (ValueNum a) => ParadoxMetaParser (ValueExp a)
+parseValueNumExp' :: (ValueNum a) => ParadoxParser (ValueExp a)
 parseValueNumExp' = do
-                        base <- option (toValueExp defaultValue ) (
+                        base <- option (RawStaticalValue defaultValue ) (
                                 do
                                     parseReserved "value"
                                     parseReservedOp "="
