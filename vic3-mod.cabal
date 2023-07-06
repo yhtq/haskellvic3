@@ -28,6 +28,9 @@ maintainer:
 -- copyright:
 -- category:
 extra-source-files: CHANGELOG.md
+
+data-files:
+    test/testfile/*.txt
 common profiling
     ghc-options: 
         -O2 
@@ -45,10 +48,31 @@ common base_depends
         transformers,
         text,
         containers,
-        mtl
+        mtl,
+    other-modules:
+        Paths_vic3_mod
+    autogen-modules:
+        Paths_vic3_mod
+common test_depends
+    build-depends:
+        tasty,
+        tasty-hunit,
+        tasty-quickcheck,
+        falsify
 common other_modules
     other-modules:
         TestParse
+test-suite test
+    import: debug
+    import: base_depends
+    import: other_modules
+    import: test_depends
+    type:   exitcode-stdio-1.0
+    main-is:         MainTest.hs
+    default-language: GHC2021
+    hs-source-dirs:   
+        app
+        test
 executable profile
     import: profiling
     import: base_depends
@@ -68,7 +92,6 @@ executable debug
     import: debug
     import: base_depends
     import: other_modules
-    build-depends:   QuickCheck
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
@@ -79,4 +102,5 @@ executable debug
     build-depends:    base ^>=4.16.4.0
     hs-source-dirs:   app
     default-language: GHC2021 
+
 
