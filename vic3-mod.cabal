@@ -61,7 +61,11 @@ common test_depends
         falsify
 common other_modules
     other-modules:
-        TestParse
+        BaseParser,
+        BaseParser,
+        TypedNumExpParser,
+        Parser
+
 test-suite test
     import: debug
     import: base_depends

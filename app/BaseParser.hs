@@ -1,19 +1,14 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
-module TestParse where
+module BaseParser where
 import Prelude hiding (exp)
 import Text.Parsec
-import qualified Text.Parsec.Text as T
 import qualified Text.Parsec.Token as Tok
 import Text.Parsec.Language (emptyDef)
 import Data.Text (Text, pack)
-import qualified Data.Text as DT
 import Data.Map (Map) 
-import qualified Data.Map as Map
 import Control.Monad.Identity (Identity, liftM)
-import GHC.TypeLits (ErrorMessage(Text))
 import Text.Parsec.Token (GenTokenParser(stringLiteral))
-import Data.Map.Strict (fromListWithKey)
 type ParadoxLanguage = Tok.GenLanguageDef Text () Identity
 type ParadoxParser = Parsec Text () 
 paradoxLanguage :: ParadoxLanguage
@@ -172,8 +167,11 @@ liftToExp :: (Monad m, Term a) => m a -> m Exp
 liftToExp = liftM toExp
 
 -- parser
+lexer :: GenTokenParser Text () Identity
 lexer = Tok.makeTokenParser paradoxLanguage
+lexeme :: ParsecT Text () Identity a -> ParsecT Text () Identity a
 lexeme = Tok.lexeme lexer
+symbol :: String -> ParsecT Text () Identity String
 symbol = Tok.symbol lexer
 convertToText :: (Monad m) => (a -> m String) -> (a -> m Text)
 convertToText f = fmap pack.f
@@ -210,111 +208,11 @@ parseColor = do
     colorValue <- sepBy parseFloatWithSpaceLeft parseWhiteSpaces
     parseReservedOp "}"
     return $ Color colorType colorValue
-parseObject :: ParadoxParser Object
-parseObject = do
-    parseWhiteSpaces
-    name <- parseIdentifier
-    parseReservedOp "="
-    parseReserved "{"
-    assignments <- many parseAssignment
-    parseReserved "}"
-    let buildMap f = fromListWithKey f.map (\(Assignment k v) -> (k, return v :: ParadoxParser Exp))
-    let errorReport k _ _ = fail $ "duplicate key: " ++ DT.unpack k
-    let assignmentsMapParse = sequence $ buildMap errorReport assignments
-    assignmentsMap <- assignmentsMapParse
-    return $ Object name assignmentsMap
-parseObjects :: ParadoxParser [Object]
-parseObjects = do
-    parseWhiteSpaces
-    many1 parseObject
-parseAssignment :: ParadoxParser Assignment
-parseAssignment = do
-    key <- parseIdentifier
-    parseReservedOp "="
-    value <- parseExp
-    return $ Assignment key value
-parseExp :: ParadoxParser Exp
-parseExp = do
-    parseExpBlock 
-    <|> parseValueExp 
-    -- 暂且统一视作Value?
-    -- <|> liftToExp parseVar 
-    <|> liftToExp parseText
-    <|> liftToExp parseColor
-    <|> liftToExp parseIdentifier
-    -- parseBoolExp <|> parseColorExp 
 parseVar :: ParadoxParser Var 
 parseVar = do
     name <- parseIdentifier
     return $ Var name
 
--- 或许可以优化，解析整数失败不一定要回溯
-parseValueExp :: ParadoxParser Exp
-parseValueExp = do
-    liftToExp $ try parseUntypedNumExp
-    -- liftToExp $ try parseValueIntExp 
-    -- <|>
-    -- liftToExp parseValueFloatExp 
-    -- <|> parseBoolExp <|> parseVarExp <|> parseColorExp <|> parseText
-parseExpBlock :: ParadoxParser Exp
-parseExpBlock = Tok.braces lexer parseExp
--- ValueNumExp : ValueNumRaw | ValueNumExpBlock 
--- ValueNumExpBlock : "{" ValueNumExp' "}"
--- ValueNumExp' : "value"" "=" ValueNumExp | ε | ValueNumExp' ValueNumOp("add"...) "=" ValueNumExp
--- chainl 函数可以直接解析左递归的表达式
-parseValueIntExp :: ParadoxParser ValueIntExp
-parseValueIntExp = parseValueNumExp :: ParadoxParser ValueIntExp
-parseValueFloatExp :: ParadoxParser ValueFloatExp
-parseValueFloatExp = parseValueNumExp :: ParadoxParser ValueFloatExp
-parseUntypedNumExp :: ParadoxParser ValueUntypedNumExp
-parseUntypedNumExp = parseValueNumExp :: ParadoxParser ValueUntypedNumExp
-parseValueNumExp :: (ValueNum a) => ParadoxParser (ValueExp a)
-parseValueNumExp = do
-    parseValueNumExpBlock <|> parseValueNumRaw
-parseValueNumRaw :: (ValueNum a) => ParadoxParser (ValueExp a)
-parseValueNumRaw = do
-    fmap RawStaticalValue parseNum <|> fmap (RawVar . Var) parseIdentifier <|> fmap RawScriptedValue parseText
-parseValueNumExpBlock :: (ValueNum a) => ParadoxParser (ValueExp a)
-parseValueNumExpBlock = do
-    parseReserved "{"
-    exp <- parseValueNumExp'
-    parseReserved "}"
-    return exp
-parseAppendValueNumExp :: (ValueNum a) => ParadoxParser (ValueExp a -> ValueExp a)
-parseAppendValueNumExp = do
-                            let append' op = do 
-                                        parseReservedOp "="
-                                        exp <- parseValueNumExp
-                                        return (\baseExp -> Exp op baseExp exp, pack "")
-                            let append = (do {parseReservedOp "add"; append' Add})
-                                    <|> (do {parseReservedOp "multiply"; append' Multiply})
-                                    <|> (do {parseReservedOp "subtract"; append' Subtract})
-                                    <|> (do {parseReservedOp "divide"; append' Divide})
-                                    <|> (do {parseReservedOp "min"; append' Min})
-                                    <|> (do {parseReservedOp "max"; append' Max})
-                                    <|> (do 
-                                            parseReserved "desc"
-                                            parseReservedOp "="
-                                            desc <- parseText
-                                            return (id, desc)
-                                        )
-                            let concatWithDesc (f1, desc1) (f2, desc2) = (f1 . f2, desc1 <> desc2)
-                            (f, desc) <- chainl append (return concatWithDesc) (id, pack "")
-                            if (DT.null desc) then return f else return (ValueExpWithDesc desc . f)
-
-
-parseValueNumExp' :: (ValueNum a) => ParadoxParser (ValueExp a)
-parseValueNumExp' = do
-                        base <- option (RawStaticalValue defaultValue ) (
-                                do
-                                    parseReserved "value"
-                                    parseReservedOp "="
-                                    parseValueNumExp
-                                )
-                        f <- parseAppendValueNumExp
-                        return $ f base
-runTestParser :: ParadoxParser a -> Text -> Either ParseError a
-runTestParser p = parse p ""
 
     
     

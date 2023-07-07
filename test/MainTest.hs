@@ -1,5 +1,5 @@
 module Main where
-import TestParse(parseObject, runTestParser, parseObjects)
+import Parser(parseObject, runTestParser, parseObjects)
 import Test.Tasty
 import qualified Data.Text as DT 
 import Test.Tasty.HUnit
