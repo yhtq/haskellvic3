@@ -3,11 +3,13 @@
 module Parser where
 import BaseParser
 import TypedNumExpParser
+import UnTypedNumExpParser ( parseValueUntypedNumExp, ParadoxUntypedNumParser, valueUntypedNumFloatSimplify, valueUntypedNumIntSimplify )
 import Text.Parsec
 import qualified Text.Parsec.Token as Tok
 import Data.Text (Text)
 import qualified Data.Text as DT
 import Data.Map (fromListWithKey)
+import Control.Monad (when)
 parseObject :: ParadoxParser Object
 parseObject = do
     parseWhiteSpaces
@@ -31,11 +33,25 @@ parseAssignment = do
     parseReservedOp "="
     value <- parseExp
     return $ Assignment key value
+--parseValueExpWithLabel :: ParadoxUntypedNumParser Exp
+--parseValueExpWithLabel = do
+--    liftToExp $ 
+    -- liftToExp $ try parseValueIntExp 
+    -- <|>
+    -- liftToExp parseValueFloatExp 
+    -- <|> parseBoolExp <|> parseVarExp <|> parseColorExp <|> parseText
+parseValueExp :: ParadoxParser Exp
+parseValueExp = do
+    setState Int
+    exp <- try parseValueUntypedNumExp
+    state <- getState
+    let newValueExp = if state == Float then FromFloatExp $ valueUntypedNumFloatSimplify exp else FromIntExp $ valueUntypedNumIntSimplify exp
+    return newValueExp
 
 parseExp :: ParadoxParser Exp
 parseExp = do
-    parseExpBlock 
-    <|> parseValueExp 
+    parseExpBlock
+    <|> parseValueExp
     -- 暂且统一视作Value?
     -- <|> liftToExp parseVar 
     <|> liftToExp parseText
@@ -45,4 +61,4 @@ parseExp = do
 parseExpBlock :: ParadoxParser Exp
 parseExpBlock = Tok.braces lexer parseExp
 runTestParser :: ParadoxParser a -> Text -> Either ParseError a
-runTestParser p = parse p ""
+runTestParser p = runParser p Int ""

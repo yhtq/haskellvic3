@@ -9,9 +9,11 @@ import Data.Text (Text, pack)
 import Data.Map (Map) 
 import Control.Monad.Identity (Identity, liftM)
 import Text.Parsec.Token (GenTokenParser(stringLiteral))
-type ParadoxLanguage = Tok.GenLanguageDef Text () Identity
-type ParadoxParser = Parsec Text () 
-paradoxLanguage :: ParadoxLanguage
+data NumTypeFlag = Int | Float deriving (Show, Eq)
+type ParadoxLanguage s = Tok.GenLanguageDef Text s Identity
+type StatedParadoxParser s = Parsec Text s
+type ParadoxParser = StatedParadoxParser NumTypeFlag
+paradoxLanguage :: ParadoxLanguage s
 paradoxLanguage = emptyDef {
     Tok.commentStart = "",
     Tok.commentEnd = "",
@@ -80,29 +82,55 @@ data ValueExp a = ValueExpWithDesc Text (ValueExp a) |
                     RawStaticalValue a | 
                     RawVar Var | 
                     RawScriptedValue Text |
-                    Exp ValueOp (ValueExp a) (ValueExp a) |
+                    Exp (ValueExp a) (AppendingValueExp a) |
                     IfExp BoolExp (IfStructure a) |
-                    AppendIfExp (ValueExp a) (IfStructure (ValueExpCal a))
+                    AppendIfExp (ValueExp a) (IfStructure (AppendingValueExp a))
                     deriving (Show)
-newtype ValueExpCal a = ValueExpCal (ValueExp a -> ValueExp a)
-instance (Show a, Num a, ValueNum a) => Show (ValueExpCal a) where
-    show :: (Show a, Num a) => ValueExpCal a -> String
-    show (ValueExpCal f) = showWithOutValue (f $ RawStaticalValue defaultValue)
-showWithOutValue :: (Show a, Num a) => ValueExp a -> String
-showWithOutValue (ValueExpWithDesc desc exp) = ""
+-- 第一个构造子是左结合的，换言之AppendingValueExp实际在其左侧
+data AppendingValueExp a = ExpAppendings (AppendingValueExp a) ValueOp (ValueExp a)  | 
+                        ExpAppending ValueOp (ValueExp a)  deriving (Show)
+-- instance (Show a, Num a, ValueNum a) => Show (AppendingValueExp a) where
+--     show :: (Show a, Num a) => AppendingValueExp a -> String
+--     show f = showWithOutValue (f $ RawStaticalValue defaultValue)
+-- showWithOutValue :: (Show a, Num a) => ValueExp a -> String
+-- showWithOutValue (ValueExpWithDesc desc exp) = ""
 
 
 data IfStructure a = If BoolExp a  |
                      IfElse BoolExp a a |
                      IfElseIf BoolExp a (IfStructure a) 
                      deriving (Show)
+
+class ValueMap c where
+    -- 两个参数分别是正向映射和反向映射
+    valueMap :: (a -> b) -> c a -> c b
+instance ValueMap AppendingValueExp where
+    valueMap :: (a -> b) -> AppendingValueExp a -> AppendingValueExp b
+    valueMap f (ExpAppendings b op a ) = ExpAppendings (valueMap f b) op (valueMap f a) 
+    valueMap f (ExpAppending op a) = ExpAppending op (valueMap f a)
+instance ValueMap IfStructure where 
+    valueMap :: (a -> b) -> IfStructure a -> IfStructure b
+    valueMap f (If exp a) = If exp (f a)
+    valueMap f (IfElse exp a b) = IfElse exp (f a) (f b)
+    valueMap f (IfElseIf exp a b) = IfElseIf exp (f a) (valueMap f b)
+instance ValueMap ValueExp where
+    valueMap :: (a -> b) -> ValueExp a -> ValueExp b
+    valueMap f (ValueExpWithDesc desc exp) = ValueExpWithDesc desc (valueMap f exp)
+    valueMap f (RawStaticalValue a) = RawStaticalValue (f a)
+    valueMap f (RawVar var) = RawVar var
+    valueMap f (RawScriptedValue script) = RawScriptedValue script
+    valueMap f (Exp e ae) = Exp (valueMap f e) (valueMap f ae)
+    valueMap f (IfExp exp ifStructure) = IfExp exp (valueMap f ifStructure)
+    valueMap f (AppendIfExp a is) = AppendIfExp (valueMap f a) (valueMap (valueMap f) is)
+
+
 type ValueIntExp = ValueExp ValueInt
 type ValueFloatExp = ValueExp ValueFloat
 type ValueUntypedNumExp = ValueExp ValueUntypedNum
 
 
 class ValueNum a where
-    parseNum :: ParadoxParser a
+    parseNum :: StatedParadoxParser s a
     -- toValueExp :: a -> ValueExp a
     -- toValueExp = RawStaticalValue
     defaultValue :: a
@@ -167,48 +195,48 @@ liftToExp :: (Monad m, Term a) => m a -> m Exp
 liftToExp = liftM toExp
 
 -- parser
-lexer :: GenTokenParser Text () Identity
+lexer :: GenTokenParser Text s Identity
 lexer = Tok.makeTokenParser paradoxLanguage
-lexeme :: ParsecT Text () Identity a -> ParsecT Text () Identity a
+lexeme :: ParsecT Text s Identity a -> ParsecT Text s Identity a
 lexeme = Tok.lexeme lexer
-symbol :: String -> ParsecT Text () Identity String
+symbol :: String -> ParsecT Text s Identity String
 symbol = Tok.symbol lexer
 convertToText :: (Monad m) => (a -> m String) -> (a -> m Text)
 convertToText f = fmap pack.f
 
-parseIntWithSpaceLeft :: ParadoxParser ValueInt
+parseIntWithSpaceLeft :: StatedParadoxParser s ValueInt
 parseIntWithSpaceLeft = Tok.integer lexer
-parseInt :: ParadoxParser ValueInt
+parseInt :: StatedParadoxParser s ValueInt
 parseInt = lexeme parseIntWithSpaceLeft
-parseFloatWithSpaceLeft :: ParadoxParser ValueFloat
+parseFloatWithSpaceLeft :: StatedParadoxParser s ValueFloat
 parseFloatWithSpaceLeft = try (Tok.float lexer) <|> fmap fromIntegral parseIntWithSpaceLeft
-parseFloat :: ParadoxParser ValueFloat
+parseFloat :: StatedParadoxParser s ValueFloat
 parseFloat = lexeme parseFloatWithSpaceLeft
-parseUntypedNum :: ParadoxParser ValueUntypedNum
+parseUntypedNum :: StatedParadoxParser s ValueUntypedNum
 parseUntypedNum = try (fmap ValueFloat $ Tok.float lexer) <|> fmap ValueInt parseInt
-parseWhiteSpaces :: ParadoxParser ()
+parseWhiteSpaces :: StatedParadoxParser s ()
 parseWhiteSpaces = Tok.whiteSpace lexer
-parseIdentifier :: ParadoxParser Text
+parseIdentifier :: StatedParadoxParser s Text
 parseIdentifier = lexeme $
     fmap pack (Tok.identifier lexer)
-parseReserved :: String -> ParadoxParser ()
+parseReserved :: String -> StatedParadoxParser s ()
 parseReserved = lexeme.Tok.reserved lexer
-parseReservedWithReturn :: String -> ParadoxParser Text
+parseReservedWithReturn :: String -> StatedParadoxParser s Text
 parseReservedWithReturn str = do
     parseReserved str
     return $ pack str
-parseReservedOp :: String -> ParadoxParser ()
+parseReservedOp :: String -> StatedParadoxParser s ()
 parseReservedOp = lexeme.Tok.reservedOp lexer
-parseText :: ParadoxParser Text
+parseText :: StatedParadoxParser s Text
 parseText = lexeme $ fmap pack (stringLiteral lexer)
-parseColor :: ParadoxParser Color
+parseColor :: StatedParadoxParser s Color
 parseColor = do
     colorType <- choice $ map parseReservedWithReturn ["hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360"]
     parseReservedOp "{"
     colorValue <- sepBy parseFloatWithSpaceLeft parseWhiteSpaces
     parseReservedOp "}"
     return $ Color colorType colorValue
-parseVar :: ParadoxParser Var 
+parseVar :: StatedParadoxParser s Var 
 parseVar = do
     name <- parseIdentifier
     return $ Var name

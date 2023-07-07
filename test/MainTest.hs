@@ -1,10 +1,8 @@
 module Main where
 import Parser(parseObject, runTestParser, parseObjects)
 import Test.Tasty
-import qualified Data.Text as DT 
 import Test.Tasty.HUnit
 import Paths_vic3_mod
-import System.Exit (exitFailure)
 import qualified Data.Text.IO as DT.IO
 import Text.Parsec (ParseError)
 import System.IO (openFile, IOMode (ReadMode), hSetEncoding, utf8_bom)
