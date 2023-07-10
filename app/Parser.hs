@@ -57,6 +57,7 @@ parseExp = do
     <|> liftToExp parseText
     <|> liftToExp parseColor
     <|> liftToExp parseIdentifier
+    <|> liftToExp parseObject
     -- parseBoolExp <|> parseColorExp 
 parseExpBlock :: ParadoxParser Exp
 parseExpBlock = Tok.braces lexer parseExp

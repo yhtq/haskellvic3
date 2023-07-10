@@ -25,11 +25,13 @@ paradoxLanguage = emptyDef {
     Tok.opLetter = oneOf "<>=",
     Tok.reservedNames = ["if", "else", "else_if", "limit", "switch", "while", 
         "yes", "no", 
-        "AND", "OR", "NOT", 
-        "value", "add", "multiply", "subtract", "divide", "min", "max",
+        "AND", "OR", "NOT", "NOR", "NAND", 
+        "value", "add", "multiply", "subtract", "divide", "min", "max", "modulo",
+        "round", "ceiling", "floor", "round_to",
         "desc", 
         "{", "}",
         "hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360",
+        ":",
         "@["] ,
     Tok.reservedOpNames = ["<=", ">=", "<", ">", "==", "?=", "!=", "="],
     Tok.caseSensitive = True
@@ -42,6 +44,10 @@ type DefinitionMap = Map Text Exp
 type Undetermined = ()
 type Key = Text
 type Query = Text
+data ScopeTransformer = ScopeTransformer {
+    scopeScopeTransformer :: Text,
+    nameScopeTransformer :: Text
+} deriving (Show)
 type Desc = Text
 newtype Var = Var Key deriving (Show)
 data Color = Color {
@@ -69,7 +75,11 @@ instance Num ValueUntypedNum where
     signum (ValueInt a) = ValueInt (signum a)
     signum (ValueFloat a) = ValueFloat (signum a)
     fromInteger a = ValueInt a
-data ValueOp = Add | Multiply | Subtract | Divide | Min | Max deriving (Show)
+data ValueOp = Add | Multiply | Subtract | Divide 
+                | Min | Max
+                | Modulo
+                | Round | Ceiling | Floor | RoundTo
+                 deriving (Show)
 opMap :: String -> ValueOp
 opMap "add" = Add
 opMap "multiply" = Multiply
@@ -77,6 +87,11 @@ opMap "subtract" = Subtract
 opMap "divide" = Divide
 opMap "min" = Min
 opMap "max" = Max
+opMap "modulo" = Modulo
+opMap "round" = Round
+opMap "ceiling" = Ceiling
+opMap "floor" = Floor
+opMap "round_to" = RoundTo
 opMap _ = undefined
 data ValueExp a = ValueExpWithDesc Text (ValueExp a) | 
                     RawStaticalValue a | 
@@ -146,18 +161,44 @@ instance ValueNum ValueUntypedNum where
 
 
 data ValueBool = Yes | No deriving (Show, Eq)
-data BoolOp = And | Or deriving (Show)
-data CmpOp = Less | Greater | LessEq | GreaterEq deriving (Show)
+data BoolOp = And | Or | Nor | NAND deriving (Show)
+data CmpOp = Less | Greater | LessEq | GreaterEq | Eq | NotEq deriving (Show)
 data BoolNot = Not deriving (Show)
-data BoolExp = BoolExp BoolOp BoolExp BoolExp | 
-                BoolExp' BoolNot BoolExp | 
+data BoolExp = BoolOp BoolOp [BoolExp] | 
+                BoolOp' BoolNot BoolExp | 
                 IntCmp CmpOp ValueIntExp ValueIntExp |
                 FloatCmp CmpOp ValueFloatExp ValueFloatExp |
+                UntypedNumCmp CmpOp ValueUntypedNumExp ValueUntypedNumExp |
                 Q Query Key |
-                BoolRaw ValueBool 
+                ScopeTrans ScopeTransformer BoolExp
+                -- | BoolRaw ValueBool  似乎不允许这样写
                 deriving (Show)
-
-data Exp = FromUntypedNumExp ValueUntypedNumExp | FromIntExp ValueIntExp | FromFloatExp ValueFloatExp | FromBoolExp BoolExp | FromSwitchExp Switch | FromVarExp Var | FromColor Color | FromText Text deriving (Show)
+newtype ConstBoolExp = BoolRaw ValueBool
+boolOpMap :: String -> BoolOp
+boolOpMap "AND" = And
+boolOpMap "OR" = Or
+boolOpMap "NOR" = Nor
+boolOpMap "NAND" = NAND
+boolOpMap _ = undefined
+cmpOpMap :: String -> CmpOp
+cmpOpMap "<" = Less
+cmpOpMap ">" = Greater
+cmpOpMap "<=" = LessEq
+cmpOpMap ">=" = GreaterEq
+cmpOpMap "==" = Eq
+cmpOpMap "!=" = NotEq
+cmpOpMap "?=" = Eq  -- 没看懂啥意思
+cmpOpMap _ = undefined
+data Exp = FromUntypedNumExp ValueUntypedNumExp | 
+            FromIntExp ValueIntExp | 
+            FromFloatExp ValueFloatExp |
+            FromBoolExp BoolExp | 
+            FromSwitchExp Switch | 
+            FromVarExp Var | 
+            FromColor Color | 
+            FromText Text |
+            FromObject Object
+            deriving (Show)
 class Term a where 
     toExp :: a -> Exp
 instance Term ValueIntExp where
@@ -176,7 +217,8 @@ instance Term Text where
     toExp = FromText 
 instance Term Var where
     toExp = FromVarExp
-
+instance Term Object where
+    toExp = FromObject
 
 type Limit = BoolExp
 data Switch = Switch {
@@ -191,6 +233,8 @@ data Object = Object {
     obj_name :: Text,
     assignments :: DefinitionMap   -- 定义object时给出的属性
 } deriving (Show)
+type Effect = Object
+type Effects = [Effect]
 liftToExp :: (Monad m, Term a) => m a -> m Exp 
 liftToExp = liftM toExp
 
@@ -201,6 +245,8 @@ lexeme :: ParsecT Text s Identity a -> ParsecT Text s Identity a
 lexeme = Tok.lexeme lexer
 symbol :: String -> ParsecT Text s Identity String
 symbol = Tok.symbol lexer
+braces :: ParsecT Text s Identity a -> ParsecT Text s Identity a
+braces = Tok.braces lexer
 convertToText :: (Monad m) => (a -> m String) -> (a -> m Text)
 convertToText f = fmap pack.f
 

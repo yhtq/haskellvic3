@@ -10,7 +10,7 @@ module UnTypedNumExpParser(
 ) where
 import BaseParser
 import qualified Data.Text as DT
-import Text.Parsec ( chainl, option, (<|>), getState, optionMaybe, try, modifyState, setState, char )
+import Text.Parsec ( chainl, option, (<|>), getState, optionMaybe, try, modifyState, setState, char, notFollowedBy )
 import Data.Text (pack, Text)
 import Control.Monad (when)
 type ParadoxUntypedNumParser = StatedParadoxParser NumTypeFlag
@@ -56,10 +56,8 @@ instance DynamicParser ValueUntypedNum NumTypeFlag where
 type UntypedNumParser = StatedParadoxParser NumTypeFlag
 parseInt' = try $ do
     int <- parseInt
-    pointTry <- optionMaybe (char '.')
-    case pointTry of
-        Just _ -> fail "not int"
-        Nothing -> return int
+    notFollowedBy (char '.')
+    return int
 parseNotLiteralNum :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
 parseNotLiteralNum = fmap (RawVar . Var) parseIdentifier <|> fmap RawScriptedValue parseText
 parseValueNumExp :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
@@ -103,6 +101,11 @@ parseAppendValueNumExp = do
                                     <|> (do {parseReservedOp "divide"; append' Divide})
                                     <|> (do {parseReservedOp "min"; append' Min})
                                     <|> (do {parseReservedOp "max"; append' Max})
+                                    <|> (do {parseReservedOp "modulo"; append' Modulo})
+                                    <|> (do {parseReservedOp "round"; append' Round})
+                                    <|> (do {parseReservedOp "ceiling"; append' Ceiling})
+                                    <|> (do {parseReservedOp "floor"; append' Floor})
+                                    <|> (do {parseReservedOp "round_to"; append' RoundTo})
                                     <|> (do
                                             parseReserved "desc"
                                             parseReservedOp "="

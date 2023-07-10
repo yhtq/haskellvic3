@@ -57,7 +57,9 @@ common base_depends
         Paths_vic3_mod
     default-extensions:
         FunctionalDependencies,
-        LambdaCase
+        LambdaCase,
+        AllowAmbiguousTypes,
+        TypeApplications
 common test_depends
     build-depends:
         tasty,
@@ -70,6 +72,7 @@ common other_modules
         BaseParser,
         TypedNumExpParser,
         UnTypedNumExpParser,
+        BoolExpParser,
         Parser
 
 test-suite test
