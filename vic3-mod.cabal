@@ -51,6 +51,7 @@ common base_depends
         text,
         containers,
         mtl,
+        template-haskell
     other-modules:
         Paths_vic3_mod
     autogen-modules:
@@ -65,14 +66,14 @@ common test_depends
         tasty,
         tasty-hunit,
         tasty-quickcheck,
-        falsify
+        falsify,
 common other_modules
     other-modules:
         BaseParser,
-        BaseParser,
+        Template,
         TypedNumExpParser,
         UnTypedNumExpParser,
-        BoolExpParser,
+        BoolParser,
         Parser
 
 test-suite test

@@ -1,5 +1,5 @@
 module Main where
-import Parser(parseObject, runTestParser, parseObjects)
+import Parser(runTestParser, parseObjects)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Paths_vic3_mod
@@ -15,7 +15,8 @@ main :: IO ()
 main = do
     --dir <- getDataDir
     --putStrLn dir
-    file <- getDataFileName "test/testfile/00_goods.txt"
+    --file <- getDataFileName "test/testfile/00_goods.txt"
+    file <- getDataFileName "test/testfile/buildings/01_industry.txt"
     handle <- openFile file ReadMode
     hSetEncoding handle utf8_bom 
     input <- DT.IO.hGetContents handle

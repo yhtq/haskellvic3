@@ -8,11 +8,11 @@ module UnTypedNumExpParser(
     valueUntypedNumFloatSimplify,
     valueUntypedNumIntSimplify,
 ) where
+import Prelude hiding (exp)
 import BaseParser
 import qualified Data.Text as DT
-import Text.Parsec ( chainl, option, (<|>), getState, optionMaybe, try, modifyState, setState, char, notFollowedBy )
+import Text.Parsec ( chainl, option, (<|>), getState, optionMaybe, try, modifyState, char, notFollowedBy )
 import Data.Text (pack, Text)
-import Control.Monad (when)
 type ParadoxUntypedNumParser = StatedParadoxParser NumTypeFlag
 class StateFlag s where
     isDefault :: s -> Bool
@@ -53,13 +53,13 @@ instance DynamicParser ValueUntypedNum NumTypeFlag where
     getParser Float = fmap ValueFloat parseFloat
 -- parseUntypedNumExp :: ParadoxParser ValueUntypedNumExp
 -- parseUntypedNumExp = parseValueNumExp :: ParadoxParser ValueUntypedNumExp
-type UntypedNumParser = StatedParadoxParser NumTypeFlag
+parseInt' :: ParadoxParser ValueInt
 parseInt' = try $ do
     int <- parseInt
     notFollowedBy (char '.')
     return int
 parseNotLiteralNum :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
-parseNotLiteralNum = fmap (RawVar . Var) parseIdentifier <|> fmap RawScriptedValue parseText
+parseNotLiteralNum = fmap RawIdentifier parseIdentifier <|> fmap RawScriptedValue parseText
 parseValueNumExp :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
 parseValueNumExp = do
     parseValueNumExpBlock <|> parseValueNumRaw
@@ -145,7 +145,7 @@ valueUntypedNumFloatSimplify = valueMap (\case
 valueUntypedNumIntSimplify :: ValueExp ValueUntypedNum -> ValueExp ValueInt
 valueUntypedNumIntSimplify = valueMap (\case
         ValueInt i -> i
-        ValueFloat f -> undefined   -- 这里不应该出现Float型
+        ValueFloat _ -> undefined   -- 这里不应该出现Float型
     )
 parseValueIntExp :: ParadoxParser (ValueExp ValueInt)
 parseValueIntExp = parseValueNumExp

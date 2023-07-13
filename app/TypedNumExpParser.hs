@@ -1,7 +1,10 @@
-module TypedNumExpParser where
+module TypedNumExpParser 
+(
+    parseValueIntExp,
+    parseValueFloatExp
+)where
 import BaseParser
 import qualified UnTypedNumExpParser as UTP
-import Text.Parsec 
 -- 或许可以优化，解析整数失败不一定要回溯
 -- ValueNumExp : ValueNumRaw | ValueNumExpBlock 
 -- ValueNumExpBlock : "{" ValueNumExp' "}"

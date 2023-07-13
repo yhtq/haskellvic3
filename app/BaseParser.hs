@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
+{-# LANGUAGE TemplateHaskell #-}
 module BaseParser where
 import Prelude hiding (exp)
 import Text.Parsec
@@ -8,7 +9,10 @@ import Text.Parsec.Language (emptyDef)
 import Data.Text (Text, pack)
 import Data.Map (Map) 
 import Control.Monad.Identity (Identity, liftM)
+import Template
 import Text.Parsec.Token (GenTokenParser(stringLiteral))
+import Language.Haskell.TH (mkName)
+import Data.Maybe (fromMaybe)
 data NumTypeFlag = Int | Float deriving (Show, Eq)
 type ParadoxLanguage s = Tok.GenLanguageDef Text s Identity
 type StatedParadoxParser s = Parsec Text s
@@ -24,6 +28,7 @@ paradoxLanguage = emptyDef {
     Tok.opStart = oneOf "<>=?",
     Tok.opLetter = oneOf "<>=",
     Tok.reservedNames = ["if", "else", "else_if", "limit", "switch", "while", 
+        "error_check", "severity",
         "yes", "no", 
         "AND", "OR", "NOT", "NOR", "NAND", 
         "value", "add", "multiply", "subtract", "divide", "min", "max", "modulo",
@@ -39,21 +44,23 @@ paradoxLanguage = emptyDef {
 }
 
 -- 类型定义
-type ScopeMap = Map Text Text
-type DefinitionMap = Map Text Exp
 type Undetermined = ()
 type Key = Text
-type Query = Text
+type Query = Var
 data ScopeTransformer = ScopeTransformer {
     scopeScopeTransformer :: Text,
     nameScopeTransformer :: Text
 } deriving (Show)
 type Desc = Text
-newtype Var = Var Key deriving (Show)
+data Var = Var {
+    name :: Text,
+    varType :: Text
+} deriving (Show)
 data Color = Color {
     colorType :: Text,
     colorValue :: [ValueFloat]
 } deriving (Show)
+type Groups = [Text]
 type ValueInt = Integer
 type ValueFloat = Double 
 data ValueUntypedNum = ValueInt ValueInt | ValueFloat ValueFloat deriving (Show)
@@ -93,23 +100,24 @@ opMap "ceiling" = Ceiling
 opMap "floor" = Floor
 opMap "round_to" = RoundTo
 opMap _ = undefined
+
+-- 在以下定义中，可以认为以Exp结尾的均为出现在 "=" 右侧的表达式
+-- BoolExp 除外，它在一些特殊结构中以完整 "a = b" 形式出现
+-- 在这里一般认为出现在顶层声明中 "=" 左端的是不做区分的 identifier
+-- 这也是为什么将 possible 没有视作保留字但将其右侧单独处理
 data ValueExp a = ValueExpWithDesc Text (ValueExp a) | 
                     RawStaticalValue a | 
-                    RawVar Var | 
+                    -- RawVar Var |     疑似这里不能标注类型？
+                    RawIdentifier Text |
                     RawScriptedValue Text |
                     Exp (ValueExp a) (AppendingValueExp a) |
                     IfExp BoolExp (IfStructure a) |
                     AppendIfExp (ValueExp a) (IfStructure (AppendingValueExp a))
                     deriving (Show)
+
 -- 第一个构造子是左结合的，换言之AppendingValueExp实际在其左侧
 data AppendingValueExp a = ExpAppendings (AppendingValueExp a) ValueOp (ValueExp a)  | 
                         ExpAppending ValueOp (ValueExp a)  deriving (Show)
--- instance (Show a, Num a, ValueNum a) => Show (AppendingValueExp a) where
---     show :: (Show a, Num a) => AppendingValueExp a -> String
---     show f = showWithOutValue (f $ RawStaticalValue defaultValue)
--- showWithOutValue :: (Show a, Num a) => ValueExp a -> String
--- showWithOutValue (ValueExpWithDesc desc exp) = ""
-
 
 data IfStructure a = If BoolExp a  |
                      IfElse BoolExp a a |
@@ -117,7 +125,7 @@ data IfStructure a = If BoolExp a  |
                      deriving (Show)
 
 class ValueMap c where
-    -- 两个参数分别是正向映射和反向映射
+    -- 类似Traversable的fmap
     valueMap :: (a -> b) -> c a -> c b
 instance ValueMap AppendingValueExp where
     valueMap :: (a -> b) -> AppendingValueExp a -> AppendingValueExp b
@@ -132,8 +140,8 @@ instance ValueMap ValueExp where
     valueMap :: (a -> b) -> ValueExp a -> ValueExp b
     valueMap f (ValueExpWithDesc desc exp) = ValueExpWithDesc desc (valueMap f exp)
     valueMap f (RawStaticalValue a) = RawStaticalValue (f a)
-    valueMap f (RawVar var) = RawVar var
-    valueMap f (RawScriptedValue script) = RawScriptedValue script
+    valueMap _ (RawIdentifier name) = RawIdentifier name
+    valueMap _ (RawScriptedValue script) = RawScriptedValue script
     valueMap f (Exp e ae) = Exp (valueMap f e) (valueMap f ae)
     valueMap f (IfExp exp ifStructure) = IfExp exp (valueMap f ifStructure)
     valueMap f (AppendIfExp a is) = AppendIfExp (valueMap f a) (valueMap (valueMap f) is)
@@ -144,36 +152,31 @@ type ValueFloatExp = ValueExp ValueFloat
 type ValueUntypedNumExp = ValueExp ValueUntypedNum
 
 
-class ValueNum a where
-    parseNum :: StatedParadoxParser s a
-    -- toValueExp :: a -> ValueExp a
-    -- toValueExp = RawStaticalValue
-    defaultValue :: a
-instance ValueNum ValueInt where
-    parseNum = parseInt
-    defaultValue = 0 
-instance ValueNum ValueFloat where
-    parseNum = parseFloat
-    defaultValue = 0.0
-instance ValueNum ValueUntypedNum where
-    parseNum = parseUntypedNum
-    defaultValue = ValueInt 0
 
 
 data ValueBool = Yes | No deriving (Show, Eq)
 data BoolOp = And | Or | Nor | NAND deriving (Show)
 data CmpOp = Less | Greater | LessEq | GreaterEq | Eq | NotEq deriving (Show)
 data BoolNot = Not deriving (Show)
+
+-- 这里BoolExp是指出现在 limits 块中的完整表达式，ConstBoolExp 是出现在声明中的右值表达式
 data BoolExp = BoolOp BoolOp [BoolExp] | 
                 BoolOp' BoolNot BoolExp | 
                 IntCmp CmpOp ValueIntExp ValueIntExp |
                 FloatCmp CmpOp ValueFloatExp ValueFloatExp |
                 UntypedNumCmp CmpOp ValueUntypedNumExp ValueUntypedNumExp |
-                Q Query Key |
-                ScopeTrans ScopeTransformer BoolExp
+                Q Query Var |   -- query 指 "=" 左边的，key指 "=" 右边的
+                ScopeTrans ScopeTransformer BoolExp 
                 -- | BoolRaw ValueBool  似乎不允许这样写
                 deriving (Show)
-newtype ConstBoolExp = BoolRaw ValueBool
+newtype ConstBoolExp = BoolRaw ValueBool deriving (Show)
+data ErrorCheck = ErrorCheck {
+    severity :: Text, 
+    checkCondition :: BoolExp
+} deriving (Show)
+data PossibleExp = Possible BoolExp | WithErrorCheck [ErrorCheck] deriving (Show)
+
+
 boolOpMap :: String -> BoolOp
 boolOpMap "AND" = And
 boolOpMap "OR" = Or
@@ -189,52 +192,84 @@ cmpOpMap "==" = Eq
 cmpOpMap "!=" = NotEq
 cmpOpMap "?=" = Eq  -- 没看懂啥意思
 cmpOpMap _ = undefined
-data Exp = FromUntypedNumExp ValueUntypedNumExp | 
-            FromIntExp ValueIntExp | 
-            FromFloatExp ValueFloatExp |
-            FromBoolExp BoolExp | 
-            FromSwitchExp Switch | 
-            FromVarExp Var | 
-            FromColor Color | 
-            FromText Text |
-            FromObject Object
-            deriving (Show)
-class Term a where 
-    toExp :: a -> Exp
-instance Term ValueIntExp where
-    toExp = FromIntExp
-instance Term ValueFloatExp where
-    toExp = FromFloatExp
-instance Term ValueUntypedNumExp where
-    toExp = FromUntypedNumExp
-instance Term BoolExp where
-    toExp = FromBoolExp
-instance Term Switch where
-    toExp = FromSwitchExp
-instance Term Color where
-    toExp = FromColor
-instance Term Text where
-    toExp = FromText 
-instance Term Var where
-    toExp = FromVarExp
-instance Term Object where
-    toExp = FromObject
 
-type Limit = BoolExp
+
+expGen [ ''ValueUntypedNumExp, 
+        ''ValueIntExp, 
+        ''ValueFloatExp,
+        ''ConstBoolExp,
+        ''PossibleExp,  
+        mkName "Switch", 
+        ''Var, ''Color, 
+        ''Text, 
+        mkName "Object",
+        ''Groups ]   -- 由于顺序问题这里两个涉及间接递归的类型似乎只能 mkName
+
+-- 用模板实现了下面的代码
+-- data Exp = FromValueUntypedNumExp ValueUntypedNumExp | 
+--             FromValueIntExp ValueIntExp | 
+--             FromValueFloatExp ValueFloatExp |
+--             FromConstBoolExp ConstBoolExp | 
+--             FromSwitch Switch | 
+--             FromVar Var | 
+--             FromColor Color | 
+--             FromText Text |
+--             FromObject Object
+--             deriving (Show)
+--instance Term ValueIntExp where
+--    toExp = FromValueIntExp
+--instance Term ValueFloatExp where
+--    toExp = FromValueFloatExp
+--instance Term ValueUntypedNumExp where
+--    toExp = FromValueUntypedNumExp
+--instance Term ConstBoolExp where
+--    toExp :: ConstBoolExp -> Exp
+--    toExp = FromConstBoolExp
+--instance Term Switch where
+--    toExp = FromSwitch
+--instance Term Color where
+--    toExp = FromColor
+--instance Term Text where
+--    toExp = FromText 
+--instance Term Var where
+--    toExp = FromVar
+--instance Term Object where
+--    toExp = FromObject
+
+class ValueNum a where
+    parseNum :: StatedParadoxParser s a
+    -- toValueExp :: a -> ValueExp a
+    -- toValueExp = RawStaticalValue
+    defaultValue :: a
+instance ValueNum ValueInt where
+    parseNum :: StatedParadoxParser s ValueInt
+    parseNum = parseInt
+    defaultValue = 0 
+instance ValueNum ValueFloat where
+    parseNum :: StatedParadoxParser s ValueFloat
+    parseNum = parseFloat
+    defaultValue = 0.0
+instance ValueNum ValueUntypedNum where
+    parseNum :: StatedParadoxParser s ValueUntypedNum
+    parseNum = parseUntypedNum
+    defaultValue = ValueInt 0
 data Switch = Switch {
     switch :: Key,
     cases :: [Exp]
 } deriving (Show) 
-data Assignment = Assignment {
+data Declaration = Declaration {
     key :: Key,
     value :: Exp
 } deriving (Show)
 data Object = Object {
     obj_name :: Text,
-    assignments :: DefinitionMap   -- 定义object时给出的属性
+    declarations :: DefinitionMap   -- 定义object时给出的属性
 } deriving (Show)
 type Effect = Object
 type Effects = [Effect]
+type ScopeMap = Map Text Text
+type DefinitionMap = Map Text Exp
+type Limit = BoolExp
 liftToExp :: (Monad m, Term a) => m a -> m Exp 
 liftToExp = liftM toExp
 
@@ -284,8 +319,15 @@ parseColor = do
     return $ Color colorType colorValue
 parseVar :: StatedParadoxParser s Var 
 parseVar = do
+    vartype <- optionMaybe $ try $ do 
+        typeText <- parseIdentifier
+        parseReservedOp ":"
+        return typeText
+    let vartype2 = fromMaybe (pack "") vartype
     name <- parseIdentifier
-    return $ Var name
+    return $ Var name vartype2
+identifierToVar :: Text -> Var
+identifierToVar s = Var s (pack "")
 
 
     
