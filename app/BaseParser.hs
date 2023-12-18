@@ -8,7 +8,8 @@ import qualified Text.Parsec.Token as Tok
 import Text.Parsec.Language (emptyDef)
 import Data.Text (Text, pack)
 import Data.Map (Map) 
-import Control.Monad.Identity (Identity, liftM)
+import Control.Monad.Identity (Identity)
+import Control.Monad(liftM)
 import Template
 import Text.Parsec.Token (GenTokenParser(stringLiteral))
 import Language.Haskell.TH (mkName)
@@ -190,7 +191,7 @@ cmpOpMap "<=" = LessEq
 cmpOpMap ">=" = GreaterEq
 cmpOpMap "==" = Eq
 cmpOpMap "!=" = NotEq
-cmpOpMap "?=" = Eq  -- 没看懂啥意思
+cmpOpMap "?=" = Eq  -- 特殊运算符，意为先判断存在再检查相等
 cmpOpMap _ = undefined
 
 

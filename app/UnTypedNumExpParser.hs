@@ -13,6 +13,8 @@ import BaseParser
 import qualified Data.Text as DT
 import Text.Parsec ( chainl, option, (<|>), getState, optionMaybe, try, modifyState, char, notFollowedBy )
 import Data.Text (pack, Text)
+
+-- 这里的 flag 用于标记当前的解析器是解析Int还是Float，规则为在同一个表达式中，所有字面值都是整数则为Int，否则为Float
 type ParadoxUntypedNumParser = StatedParadoxParser NumTypeFlag
 class StateFlag s where
     isDefault :: s -> Bool

@@ -13,7 +13,7 @@ import Language.Haskell.TH
       newName,
       SourceStrictness(NoSourceStrictness),
       SourceUnpackedness(NoSourceUnpackedness), DerivClause (DerivClause), Exp (ConE), Pat (VarP) )
-import Control.Monad.Cont (MonadTrans(lift))
+--import Control.Monad.Cont (MonadTrans(lift))
 import Control.Monad
 newtype A = A Int
 newtype B = B Int

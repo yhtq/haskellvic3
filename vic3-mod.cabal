@@ -45,7 +45,7 @@ common debug
         -Wall
 common base_depends
     build-depends:    
-        base ^>=4.16.4.0,
+        base ,
         parsec,
         transformers,
         text,
@@ -66,7 +66,7 @@ common test_depends
         tasty,
         tasty-hunit,
         tasty-quickcheck,
-        falsify,
+        -- falsify,
 common other_modules
     other-modules:
         BaseParser,
@@ -113,7 +113,7 @@ executable debug
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     
-    build-depends:    base ^>=4.16.4.0
+    build-depends:    base 
     hs-source-dirs:   app
     default-language: GHC2021 
 
