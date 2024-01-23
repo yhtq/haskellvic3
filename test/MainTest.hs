@@ -11,7 +11,8 @@ assertParsingSuccess :: (Show a) => Either ParseError a -> Assertion
 assertParsingSuccess expected =
     case expected of
         Left err -> assertFailure $ "Parsing failed: " ++ show err
-        Right _ -> return ()
+        -- Right result -> return ()
+        Right result -> assertFailure $ "Parsing Finish" ++ show result
 genTest :: String -> IO TestTree
 genTest path = do
     file <- getDataFileName path
@@ -23,11 +24,10 @@ main :: IO ()
 main = do
     --dir <- getDataDir
     --putStrLn dir
-    --file <- getDataFileName "test/testfile/00_goods.txt"
-    file <- getDataFileName "test/testfile/buildings/01_industry.txt"
-    handle <- openFile file ReadMode
-    hSetEncoding handle utf8_bom 
-    input <- DT.IO.hGetContents handle
-    let test1 = testCase "unit test1" (assertParsingSuccess (runTestParser parseObjects input))
-    defaultMain (testGroup "Our Library Tests" [test1])
+    -- file1 <- getDataFileName "test/testfile/00_goods.txt"
+    -- file2 <- getDataFileName "test/testfile/buildings/01_industry.txt"
+    test1 <- genTest "test/testfile/00_goods.txt"
+    test2 <- genTest "test/testfile/buildings/01_industry.txt"
+    test3 <- genTest "test/testfile/buildings/02_agro.txt"
+    defaultMain (testGroup "Our Library Tests" [test1, test2, test3])
     

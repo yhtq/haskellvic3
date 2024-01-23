@@ -3,21 +3,23 @@
 {-# LANGUAGE TemplateHaskell #-}
 module BaseParser where
 import Prelude hiding (exp)
-import Text.Parsec
-import qualified Text.Parsec.Token as Tok
-import Text.Parsec.Language (emptyDef)
-import Data.Text (Text, pack)
+import Text.Megaparsec
+-- import qualified Text.MegaParsec.Token as Tok
+-- import Text.MegaParsec.Language (emptyDef)
+import Data.Text (Text, pack, unpack)
 import Data.Map (Map) 
 import Control.Monad.Identity (Identity)
 import Control.Monad(liftM)
-import Template
-import Text.Parsec.Token (GenTokenParser(stringLiteral))
+import Control.Monad.Trans.State.Lazy (StateT)
+import Template ( expGen )
+-- import Text.MegaParsec.Token (GenTokenParser(stringLiteral))
 import Language.Haskell.TH (mkName)
 import Data.Maybe (fromMaybe)
 data NumTypeFlag = Int | Float deriving (Show, Eq)
 type ParadoxLanguage s = Tok.GenLanguageDef Text s Identity
-type StatedParadoxParser s = Parsec Text s
-type ParadoxParser = StatedParadoxParser NumTypeFlag
+type ParadoxParser = ParsecT Text () Identity
+type StatedParadoxParser s = StateT s ParadoxParser
+
 paradoxLanguage :: ParadoxLanguage s
 paradoxLanguage = emptyDef {
     Tok.commentStart = "",
@@ -46,22 +48,32 @@ paradoxLanguage = emptyDef {
 
 -- 类型定义
 type Undetermined = ()
-type Key = Text
+newtype Identifier = Text Text deriving (Show, Eq, Ord)
+type Key = Identifier
+stringToIdentifier :: String -> Identifier
+stringToIdentifier = Text . pack
+textToIdentifier :: Text -> Identifier
+textToIdentifier = Text
+identifierToString :: Identifier -> String
+identifierToString (Text s) = unpack s
+identifierToText :: Identifier -> Text
+identifierToText (Text s) = s
 type Query = Var
+type Scope = Identifier
 data ScopeTransformer = ScopeTransformer {
-    scopeScopeTransformer :: Text,
-    nameScopeTransformer :: Text
+    scopeScopeTransformer :: Scope,
+    nameScopeTransformer :: Scope
 } deriving (Show)
 type Desc = Text
 data Var = Var {
-    name :: Text,
+    name :: Identifier,
     varType :: Text
 } deriving (Show)
 data Color = Color {
     colorType :: Text,
     colorValue :: [ValueFloat]
 } deriving (Show)
-type Groups = [Text]
+type Groups = [Identifier]
 type ValueInt = Integer
 type ValueFloat = Double 
 data ValueUntypedNum = ValueInt ValueInt | ValueFloat ValueFloat deriving (Show)
@@ -109,7 +121,7 @@ opMap _ = undefined
 data ValueExp a = ValueExpWithDesc Text (ValueExp a) | 
                     RawStaticalValue a | 
                     -- RawVar Var |     疑似这里不能标注类型？
-                    RawIdentifier Text |
+                    RawIdentifier Identifier |
                     RawScriptedValue Text |
                     Exp (ValueExp a) (AppendingValueExp a) |
                     IfExp BoolExp (IfStructure a) |
@@ -172,7 +184,7 @@ data BoolExp = BoolOp BoolOp [BoolExp] |
                 deriving (Show)
 newtype ConstBoolExp = BoolRaw ValueBool deriving (Show)
 data ErrorCheck = ErrorCheck {
-    severity :: Text, 
+    severity :: Identifier, 
     checkCondition :: BoolExp
 } deriving (Show)
 data PossibleExp = Possible BoolExp | WithErrorCheck [ErrorCheck] deriving (Show)
@@ -203,6 +215,7 @@ expGen [ ''ValueUntypedNumExp,
         mkName "Switch", 
         ''Var, ''Color, 
         ''Text, 
+        ''Identifier,
         mkName "Object",
         ''Groups ]   -- 由于顺序问题这里两个涉及间接递归的类型似乎只能 mkName
 
@@ -238,20 +251,20 @@ expGen [ ''ValueUntypedNumExp,
 --    toExp = FromObject
 
 class ValueNum a where
-    parseNum :: StatedParadoxParser s a
+    parseNum :: ParadoxParser a
     -- toValueExp :: a -> ValueExp a
     -- toValueExp = RawStaticalValue
     defaultValue :: a
 instance ValueNum ValueInt where
-    parseNum :: StatedParadoxParser s ValueInt
+    parseNum :: ParadoxParser ValueInt
     parseNum = parseInt
     defaultValue = 0 
 instance ValueNum ValueFloat where
-    parseNum :: StatedParadoxParser s ValueFloat
+    parseNum :: ParadoxParser ValueFloat
     parseNum = parseFloat
     defaultValue = 0.0
 instance ValueNum ValueUntypedNum where
-    parseNum :: StatedParadoxParser s ValueUntypedNum
+    parseNum :: ParadoxParser ValueUntypedNum
     parseNum = parseUntypedNum
     defaultValue = ValueInt 0
 data Switch = Switch {
@@ -263,13 +276,13 @@ data Declaration = Declaration {
     value :: Exp
 } deriving (Show)
 data Object = Object {
-    obj_name :: Text,
+    obj_name :: Identifier,
     declarations :: DefinitionMap   -- 定义object时给出的属性
 } deriving (Show)
 type Effect = Object
 type Effects = [Effect]
-type ScopeMap = Map Text Text
-type DefinitionMap = Map Text Exp
+type ScopeMap = Map Identifier Text
+type DefinitionMap = Map Identifier Exp
 type Limit = BoolExp
 liftToExp :: (Monad m, Term a) => m a -> m Exp 
 liftToExp = liftM toExp
@@ -286,48 +299,48 @@ braces = Tok.braces lexer
 convertToText :: (Monad m) => (a -> m String) -> (a -> m Text)
 convertToText f = fmap pack.f
 
-parseIntWithSpaceLeft :: StatedParadoxParser s ValueInt
+parseIntWithSpaceLeft :: ParadoxParser ValueInt
 parseIntWithSpaceLeft = Tok.integer lexer
-parseInt :: StatedParadoxParser s ValueInt
+parseInt :: ParadoxParser ValueInt
 parseInt = lexeme parseIntWithSpaceLeft
-parseFloatWithSpaceLeft :: StatedParadoxParser s ValueFloat
+parseFloatWithSpaceLeft :: ParadoxParser ValueFloat
 parseFloatWithSpaceLeft = try (Tok.float lexer) <|> fmap fromIntegral parseIntWithSpaceLeft
-parseFloat :: StatedParadoxParser s ValueFloat
+parseFloat :: ParadoxParser ValueFloat
 parseFloat = lexeme parseFloatWithSpaceLeft
-parseUntypedNum :: StatedParadoxParser s ValueUntypedNum
+parseUntypedNum :: ParadoxParser ValueUntypedNum
 parseUntypedNum = try (fmap ValueFloat $ Tok.float lexer) <|> fmap ValueInt parseInt
-parseWhiteSpaces :: StatedParadoxParser s ()
+parseWhiteSpaces :: ParadoxParser ()
 parseWhiteSpaces = Tok.whiteSpace lexer
-parseIdentifier :: StatedParadoxParser s Text
+parseIdentifier :: ParadoxParser Identifier
 parseIdentifier = lexeme $
-    fmap pack (Tok.identifier lexer)
-parseReserved :: String -> StatedParadoxParser s ()
+    fmap stringToIdentifier (Tok.identifier lexer)
+parseReserved :: String -> ParadoxParser ()
 parseReserved = lexeme.Tok.reserved lexer
-parseReservedWithReturn :: String -> StatedParadoxParser s Text
+parseReservedWithReturn :: String -> ParadoxParser Text
 parseReservedWithReturn str = do
     parseReserved str
     return $ pack str
-parseReservedOp :: String -> StatedParadoxParser s ()
+parseReservedOp :: String -> ParadoxParser ()
 parseReservedOp = lexeme.Tok.reservedOp lexer
-parseText :: StatedParadoxParser s Text
+parseText :: ParadoxParser Text
 parseText = lexeme $ fmap pack (stringLiteral lexer)
-parseColor :: StatedParadoxParser s Color
+parseColor :: ParadoxParser Color
 parseColor = do
     colorType <- choice $ map parseReservedWithReturn ["hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360"]
     parseReservedOp "{"
     colorValue <- sepBy parseFloatWithSpaceLeft parseWhiteSpaces
     parseReservedOp "}"
     return $ Color colorType colorValue
-parseVar :: StatedParadoxParser s Var 
+parseVar :: ParadoxParser Var 
 parseVar = do
     vartype <- optionMaybe $ try $ do 
         typeText <- parseIdentifier
         parseReservedOp ":"
-        return typeText
-    let vartype2 = fromMaybe (pack "") vartype
+        return $ identifierToText typeText
+    let vartype2 = fromMaybe (pack "") (vartype)
     name <- parseIdentifier
     return $ Var name vartype2
-identifierToVar :: Text -> Var
+identifierToVar :: Identifier -> Var
 identifierToVar s = Var s (pack "")
 
 

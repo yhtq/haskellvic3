@@ -15,7 +15,7 @@ import qualified Data.Text as DT
 import Data.Map (Map, lookup, fromListWithKey, fromList)
 import BoolParser (parseConstBoolExp, parseBoolExps, parsePossibleExp)
 import Data.Maybe (fromMaybe)
-parseObject' :: Maybe Text -> ParadoxParser Object
+parseObject' :: Maybe Identifier -> ParadoxParser Object
 parseObject' optionalName = do
     parseWhiteSpaces
     name <- case optionalName of
@@ -28,7 +28,7 @@ parseObject' optionalName = do
     declarations <- many $ parseDeclaration defaultKeyParserMap
     parseReserved "}"
     let buildMap f = fromListWithKey f.map (\(Declaration k v) -> (k, return v :: ParadoxParser Exp))
-    let errorReport k _ _ = fail $ "duplicate key: " ++ DT.unpack k
+    let errorReport k _ _ = fail $ "duplicate key: " ++ identifierToString k
     let declarationsMapParse = sequence $ buildMap errorReport declarations
     declarationsMap <- declarationsMapParse
     return $ Object name declarationsMap
@@ -40,15 +40,15 @@ parseObjects = do
     many1 parseObject
 
 -- 若有特殊关键字则直接制导到对应的Parser
-type KeyParserMap = Map Text (ParadoxParser Exp)
+type KeyParserMap = Map Key (ParadoxParser Exp)
 defaultParser :: ParadoxParser Exp
 defaultParser = parseExp
 defaultKeyParserMap :: KeyParserMap
 defaultKeyParserMap = fromList [
-        (DT.pack "possible", liftToExp parsePossibleExp)
+        (stringToIdentifier "possible", liftToExp parsePossibleExp)
     ]
 
-getParser :: Text -> KeyParserMap -> ParadoxParser Exp
+getParser :: Key -> KeyParserMap -> ParadoxParser Exp
 getParser key parserMap = fromMaybe defaultParser (lookup key parserMap)
 
 parseDeclaration :: KeyParserMap -> ParadoxParser Declaration

@@ -13,29 +13,28 @@ import BaseParser
 import qualified Data.Text as DT
 import Text.Parsec ( chainl, option, (<|>), getState, optionMaybe, try, modifyState, char, notFollowedBy )
 import Data.Text (pack, Text)
+import Control.Monad.Trans.Class(lift)
+import Control.Monad.State.Class(get, put)
+import Control.Monad.State.Lazy(StateT, runStateT)
 
 -- 这里的 flag 用于标记当前的解析器是解析Int还是Float，规则为在同一个表达式中，所有字面值都是整数则为Int，否则为Float
 type ParadoxUntypedNumParser = StatedParadoxParser NumTypeFlag
+newtype IntOnlyFlag = IntOnlyFlag ()
+newtype FloatOnlyFlag = FloatOnlyFlag ()
 class StateFlag s where
-    isDefault :: s -> Bool
+    isInt :: s -> Bool
+    isFloat :: s -> Bool
+    isFloat = not . isInt
     setInt :: s -> s
     setFloat :: s -> s
     -- 合并两个flag（找公共类型）
     merge :: s -> s -> s
 class (ValueNum a, StateFlag s) => DynamicParser a s | a -> s where
-    getParser :: s -> StatedParadoxParser s a
-instance StateFlag () where
-    isDefault :: () -> Bool
-    isDefault _ = False
-    setInt :: () -> ()
-    setInt _ = ()
-    setFloat :: () -> ()
-    setFloat _ = ()
-    merge :: () -> () -> ()
-    merge _ _ = ()
+    getParser :: s -> ParadoxParser a
 instance StateFlag NumTypeFlag where
-    isDefault :: NumTypeFlag -> Bool
-    isDefault = (==) Int
+    -- 判断类型标志是否为默认值
+    isInt :: NumTypeFlag -> Bool
+    isInt = (==) Int
     setInt :: NumTypeFlag -> NumTypeFlag
     setInt _ = Int
     setFloat :: NumTypeFlag -> NumTypeFlag
@@ -43,16 +42,37 @@ instance StateFlag NumTypeFlag where
     merge :: NumTypeFlag -> NumTypeFlag -> NumTypeFlag
     merge Int Int = Int
     merge _ _ = Float
-instance DynamicParser ValueInt NumTypeFlag where
-    getParser :: NumTypeFlag -> StatedParadoxParser NumTypeFlag ValueInt
-    getParser _ = parseInt
-instance DynamicParser ValueFloat NumTypeFlag where
-    getParser :: NumTypeFlag -> StatedParadoxParser NumTypeFlag ValueFloat
-    getParser _ = parseFloat
+instance StateFlag IntOnlyFlag where
+    -- 只解析整数，在解析到浮点数时报错
+    isInt :: IntOnlyFlag -> Bool
+    isInt _ = True
+    setInt :: IntOnlyFlag -> IntOnlyFlag
+    setInt _ = IntOnlyFlag ()
+    setFloat :: IntOnlyFlag -> IntOnlyFlag
+    setFloat _ = error "catch float in IntParser"
+    merge :: IntOnlyFlag -> IntOnlyFlag -> IntOnlyFlag
+    merge _ _ = IntOnlyFlag ()
+instance StateFlag FloatOnlyFlag where
+    -- 只解析浮点数，在解析到整数时报错
+    isInt :: FloatOnlyFlag -> Bool
+    isInt _ = False
+    setInt :: FloatOnlyFlag -> FloatOnlyFlag
+    setInt _ = FloatOnlyFlag ()
+    setFloat :: FloatOnlyFlag -> FloatOnlyFlag
+    setFloat _ = FloatOnlyFlag ()
+    merge :: FloatOnlyFlag -> FloatOnlyFlag -> FloatOnlyFlag
+    merge _ _ = FloatOnlyFlag ()
+
 instance DynamicParser ValueUntypedNum NumTypeFlag where
-    getParser :: NumTypeFlag -> StatedParadoxParser NumTypeFlag ValueUntypedNum
-    getParser Int = fmap ValueInt parseInt'
-    getParser Float = fmap ValueFloat parseFloat
+    getParser :: NumTypeFlag -> ParadoxParser ValueUntypedNum
+    getParser Int =  fmap ValueInt parseInt
+    getParser Float = fmap ValueFloat (parseFloat)
+instance DynamicParser ValueInt IntOnlyFlag where
+    getParser :: IntOnlyFlag -> ParadoxParser ValueInt
+    getParser _ =  parseInt' :: ParadoxParser ValueInt
+instance DynamicParser ValueFloat FloatOnlyFlag where
+    getParser :: FloatOnlyFlag -> ParadoxParser ValueFloat
+    getParser _ =  parseFloat :: ParadoxParser ValueFloat
 -- parseUntypedNumExp :: ParadoxParser ValueUntypedNumExp
 -- parseUntypedNumExp = parseValueNumExp :: ParadoxParser ValueUntypedNumExp
 parseInt' :: ParadoxParser ValueInt
@@ -60,19 +80,20 @@ parseInt' = try $ do
     int <- parseInt
     notFollowedBy (char '.')
     return int
-parseNotLiteralNum :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
+parseNotLiteralNum :: (ValueNum a) => ParadoxParser (ValueExp a)
 parseNotLiteralNum = fmap RawIdentifier parseIdentifier <|> fmap RawScriptedValue parseText
 parseValueNumExp :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
 parseValueNumExp = do
     parseValueNumExpBlock <|> parseValueNumRaw
 parseValueNumRaw :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
 parseValueNumRaw = do
-    valType <- getState
-    result <- optionMaybe (try $ getParser valType)
+    valType <- get
+    let parser = getParser valType
+    result <-  optionMaybe (try $ (lift parser))
     case result of
         Just value -> return (RawStaticalValue value)
         Nothing ->
-            if isDefault valType
+            if isInt valType
             then do
                 result2 <- optionMaybe parseNotLiteralNum
                 case result2 of
@@ -150,8 +171,14 @@ valueUntypedNumIntSimplify = valueMap (\case
         ValueFloat _ -> undefined   -- 这里不应该出现Float型
     )
 parseValueIntExp :: ParadoxParser (ValueExp ValueInt)
-parseValueIntExp = parseValueNumExp
+parseValueIntExp = do
+    (res, _) <- runStateT parseValueNumExp (IntOnlyFlag ())
+    return res
 parseValueFloatExp :: ParadoxParser (ValueExp ValueFloat)
-parseValueFloatExp = parseValueNumExp
+parseValueFloatExp = do
+    (res, _) <- runStateT parseValueNumExp (FloatOnlyFlag ())
+    return res
 parseValueUntypedNumExp :: ParadoxParser (ValueExp ValueUntypedNum)
-parseValueUntypedNumExp = parseValueNumExp
+parseValueUntypedNumExp = do
+    (res, _) <- runStateT parseValueNumExp (Int)
+    return res

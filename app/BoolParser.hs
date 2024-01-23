@@ -64,7 +64,7 @@ parseQ :: ParadoxParser BoolExp
 parseQ = try $ do
     query <- parseVar
     parseReservedOp "=" <|> parseReservedOp "?="
-    key <- parseVar <|> choice (map  (parseReservedWithReturn >=> (return . identifierToVar))
+    key <- parseVar <|> choice (map  (parseReservedWithReturn >=> (return . identifierToVar . textToIdentifier))
          ["yes", "no"])
     return (Q query key)
 parseScopeTrans :: ParadoxParser BoolExp
@@ -76,7 +76,7 @@ parseScopeTrans = try $ do
             return key
     let scope' = case scope of
             Just s -> s
-            Nothing -> pack ""
+            Nothing -> stringToIdentifier ""
     trans <- parseIdentifier
     parseReservedOp "=" <|> parseReservedOp "?="
     exp <- braces parseBoolExp

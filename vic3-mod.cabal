@@ -46,12 +46,13 @@ common debug
 common base_depends
     build-depends:    
         base ,
-        parsec,
+        megaparsec,
         transformers,
         text,
         containers,
         mtl,
-        template-haskell
+        template-haskell,
+        unordered-containers
     other-modules:
         Paths_vic3_mod
     autogen-modules:
