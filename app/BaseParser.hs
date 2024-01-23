@@ -3,9 +3,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 module BaseParser where
 import Prelude hiding (exp)
-import Text.Megaparsec
 -- import qualified Text.MegaParsec.Token as Tok
--- import Text.MegaParsec.Language (emptyDef)
+import Text.Megaparsec.Char.Lexer as L
 import Data.Text (Text, pack, unpack)
 import Data.Map (Map) 
 import Control.Monad.Identity (Identity)
@@ -300,7 +299,7 @@ convertToText :: (Monad m) => (a -> m String) -> (a -> m Text)
 convertToText f = fmap pack.f
 
 parseIntWithSpaceLeft :: ParadoxParser ValueInt
-parseIntWithSpaceLeft = Tok.integer lexer
+parseIntWithSpaceLeft = L.integer lexer
 parseInt :: ParadoxParser ValueInt
 parseInt = lexeme parseIntWithSpaceLeft
 parseFloatWithSpaceLeft :: ParadoxParser ValueFloat

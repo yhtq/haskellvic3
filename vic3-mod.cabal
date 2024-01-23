@@ -45,7 +45,7 @@ common debug
         -Wall
 common base_depends
     build-depends:    
-        base ,
+        base,
         megaparsec,
         transformers,
         text,
@@ -114,6 +114,13 @@ executable debug
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     
+    build-depends:    base 
+    hs-source-dirs:   app
+    default-language: GHC2021 
+
+executable temp
+    import: base_depends
+    main-is:          Main.hs
     build-depends:    base 
     hs-source-dirs:   app
     default-language: GHC2021 

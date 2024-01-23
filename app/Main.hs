@@ -1,6 +1,5 @@
 module Main where
-import Parser ()
-
+import Text.Megaparsec.Char.Lexer (space)
 main :: IO ()
 main = putStrLn "Hello, Haskell!"
 
