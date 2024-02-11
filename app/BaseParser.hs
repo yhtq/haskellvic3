@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 module BaseParser where
 import Prelude hiding (exp)
 import Text.Parsec
@@ -204,6 +205,7 @@ expGen [ ''ValueUntypedNumExp,
         ''Var, ''Color, 
         ''Text, 
         mkName "Object",
+        mkName "ObjectInList",
         ''Groups ]   -- 由于顺序问题这里两个涉及间接递归的类型似乎只能 mkName
 
 -- 用模板实现了下面的代码
@@ -266,6 +268,11 @@ data Object = Object {
     obj_name :: Text,
     declarations :: DefinitionMap   -- 定义object时给出的属性
 } deriving (Show)
+data ObjectInList = ObjectInList {
+    obj_name :: Text,
+    declarations :: [(Key, Exp)]   -- 定义object时给出的属性
+} deriving (Show)
+
 type Effect = Object
 type Effects = [Effect]
 type ScopeMap = Map Text Text

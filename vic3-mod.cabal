@@ -51,7 +51,9 @@ common base_depends
         text,
         containers,
         mtl,
-        template-haskell
+        template-haskell,
+        prettyprinter,
+        unicode-show
     other-modules:
         Paths_vic3_mod
     autogen-modules:
@@ -60,7 +62,8 @@ common base_depends
         FunctionalDependencies,
         LambdaCase,
         AllowAmbiguousTypes,
-        TypeApplications
+        TypeApplications,
+        OverloadedStrings
 common test_depends
     build-depends:
         tasty,
@@ -117,4 +120,12 @@ executable debug
     hs-source-dirs:   app
     default-language: GHC2021 
 
+executable print
+    import: base_depends
+    import: other_modules
+    other-modules:
+        BasePrinter
+    main-is: PrinterMain.hs
+    hs-source-dirs:   app
+    default-language: GHC2021
 
