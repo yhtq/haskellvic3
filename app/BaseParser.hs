@@ -162,7 +162,9 @@ data CmpOp = Less | Greater | LessEq | GreaterEq | Eq | NotEq deriving (Show)
 data BoolNot = Not deriving (Show)
 
 -- 这里BoolExp是指出现在 limits 块中的完整表达式，ConstBoolExp 是出现在声明中的右值表达式
-data BoolExp = BoolOp BoolOp [BoolExp] | 
+-- 注意默认情况下多个BoolExp是And的关系
+data BoolExp =  AndList [BoolExp] |
+                BoolOp BoolOp [BoolExp] | 
                 BoolOp' BoolNot BoolExp | 
                 IntCmp CmpOp ValueIntExp ValueIntExp |
                 FloatCmp CmpOp ValueFloatExp ValueFloatExp |
@@ -206,7 +208,9 @@ expGen [ ''ValueUntypedNumExp,
         ''Text, 
         mkName "Object",
         mkName "ObjectInList",
-        ''Groups ]   -- 由于顺序问题这里两个涉及间接递归的类型似乎只能 mkName
+        ''Groups,
+        ''BoolExp
+         ]   -- 由于顺序问题这里两个涉及间接递归的类型似乎只能 mkName
 
 -- 用模板实现了下面的代码
 -- data Exp = FromValueUntypedNumExp ValueUntypedNumExp | 

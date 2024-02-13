@@ -21,6 +21,20 @@ opMapInverse Ceiling = "ceiling"
 opMapInverse Floor = "floor"
 opMapInverse RoundTo = "round_to"
 
+boolOpToText :: BoolOp -> Text
+boolOpToText And = "AND"
+boolOpToText Or = "OR"
+boolOpToText Nor = "NOR"
+boolOpToText NAND = "NAND"
+
+cmpOpToText :: CmpOp -> Text
+cmpOpToText Less = "<"
+cmpOpToText LessEq = "<="
+cmpOpToText Greater = ">"
+cmpOpToText GreaterEq = ">="
+cmpOpToText Eq = "="
+cmpOpToText NotEq = "!="
+
 testPrinter :: [Text] -> Doc Text
 testPrinter (x: xs) = pretty x <> line <> (indent 4 $ testPrinter xs)
 testPrinter [] = mempty
@@ -102,3 +116,14 @@ printColor _ = undefined
 
 printGroups :: Groups -> Doc Text
 printGroups = vsep.(map pretty)
+
+printBoolExp :: BoolExp -> Doc Text
+printBoolExp (AndList l) = vsep $ map printBoolExp l
+printBoolExp (BoolOp op l) = pretty (boolOpToText op) <+> equals <+> braced (vsep $ map printBoolExp l)
+printBoolExp (BoolOp' not e) = "NOT" <+> equals <+> braced (printBoolExp e)
+printBoolExp (IntCmp op l r) = undefined
+printBoolExp (FloatCmp op l r) = undefined
+printBoolExp (Q q v) = printVar q <+> equals <+> printVar v
+printBoolExp (ScopeTrans (ScopeTransformer scope name) e) = 
+    prefix <+> pretty name <+> equal <+> braced (printBoolExp e) where 
+        prefix = if scope == "" then mempty else pretty scope <> ":"

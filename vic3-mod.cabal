@@ -77,7 +77,8 @@ common other_modules
         TypedNumExpParser,
         UnTypedNumExpParser,
         BoolParser,
-        Parser
+        Parser,
+        ParadoxGeneratorEnv
 
 test-suite test
     import: debug
