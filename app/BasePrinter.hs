@@ -1,6 +1,7 @@
 
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-deferred-out-of-scope-variables #-}
 module BasePrinter where
 import Data.Text ( Text )
@@ -41,13 +42,6 @@ testPrinter [] = mempty
 
 braced :: Doc Text -> Doc Text
 braced d = lbrace <> line <> (indent 4 d) <> line <> rbrace
-
--- 检测输出结果是否有多行来决定是否需要加花括号，效率较低期待后续改进
--- bracedIfMultiLine :: Doc Text -> Doc Text
--- bracedIfMultiLine d = if length (lines $ show d) > 1 
---     then lbrace <> line <> (indent 4 d) <> line <> rbrace 
---     else d
--- 
 
 
 printObject :: Object -> Doc Text
@@ -125,5 +119,24 @@ printBoolExp (IntCmp op l r) = undefined
 printBoolExp (FloatCmp op l r) = undefined
 printBoolExp (Q q v) = printVar q <+> equals <+> printVar v
 printBoolExp (ScopeTrans (ScopeTransformer scope name) e) = 
-    prefix <+> pretty name <+> equal <+> braced (printBoolExp e) where 
+    prefix <+> pretty name <+> equals <+> braced (printBoolExp e) where 
         prefix = if scope == "" then mempty else pretty scope <> ":"
+
+class ParadoxPrintable a where
+    printParadox :: a -> Doc Text
+instance {-# OVERLAPPING #-} ParadoxPrintable ObjectInList where
+    printParadox = printObjectInList
+instance ParadoxPrintable Exp where
+    printParadox = printExp
+instance (Pretty a) => ParadoxPrintable (ValueExp a) where
+    printParadox = printValueExp
+instance ParadoxPrintable Var where
+    printParadox = printVar
+instance ParadoxPrintable Color where
+    printParadox = printColor
+instance ParadoxPrintable Groups where
+    printParadox = printGroups
+instance ParadoxPrintable BoolExp where
+    printParadox = printBoolExp
+instance (ParadoxPrintable a) => ParadoxPrintable [a] where
+    printParadox = vsep.(map printParadox)
