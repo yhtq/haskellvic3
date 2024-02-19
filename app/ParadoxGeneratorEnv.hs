@@ -33,7 +33,7 @@ type Event = ObjectInList
 type Focus = ObjectInList
 focus_tree_x_dis = 0
 focus_tree_y_dis = 1
-untypedVar :: Text -> Var
+untypedVar :: Identifier -> Var
 untypedVar t = Var {
     name = t,
     varType = ""
@@ -45,13 +45,16 @@ unnameedObject d = ObjectInList {
     declarations = d
 }
 
-getId :: ObjectInList -> Text
+getId :: ObjectInList -> Var
 getId focus = case lookup "id" (declarations focus) of
-    Just (FromVar v) -> name v
+    Just (FromVar v) -> v
     _ -> error "getId: No id in object"
 
-idToExp :: Text -> Exp
-idToExp id = FromVar $ untypedVar id
+varToExp :: Var -> Exp
+varToExp v = FromVar v
+
+untypedIDToExp :: Text -> Exp
+untypedIDToExp t = varToExp $ untypedVar $ textToIdentifier t
 
 updateKV :: (Eq k) => k -> v -> [(k, v)] -> [(k, v)]
 updateKV k v l = map (\(k', v') -> if k' == k then (k, v) else (k', v')) l
@@ -142,15 +145,15 @@ newEvent (BaseEvent namespace event_type title desc options) = do
     return $ ObjectInList {
         obj_name = event_type_string,
         declarations = [
-            ("id", idToExp event_name),
-            ("title", idToExp event_title),
-            ("#", idToExp title), -- 添加注释
-            ("desc", idToExp event_desc)
+            ("id", untypedIDToExp event_name),
+            ("title", untypedIDToExp event_title),
+            ("#", untypedIDToExp title), -- 添加注释
+            ("desc", untypedIDToExp event_desc)
         ] ++ (map (\i -> ("option", 
             FromObjectInList ObjectInList {
                 obj_name = "",
                 declarations = [
-                    ("name", idToExp i)
+                    ("name", untypedIDToExp i)
                 ]
             }
         )) event_options)
@@ -174,8 +177,8 @@ newFocus (BaseFocus id name desc ai_will_do cost cancel_if_invalid continue_if_i
     return $ ObjectInList {
         obj_name = "focus",
         declarations = [
-            ("id", idToExp id),
-            ("#", idToExp name), -- 添加注释
+            ("id", untypedIDToExp id),
+            ("#", untypedIDToExp name), -- 添加注释
             ("ai_will_do", FromObjectInList ai_will_do),
             ("cost", FromValueIntExp $ RawStaticalValue cost),
             ("cancel_if_invalid", FromConstBoolExp cancel_if_invalid),
@@ -195,7 +198,7 @@ newEventFollowingFocus (EventFollowedType is_hide days) focus_obj event = do
     let event_type_text = case (event_type event) of
             CountryEvent -> "country_event"
             NewsEvent -> "news_event"
-    let Just (FromVar event_id_var) = lookup "id" (declarations event_obj)
+    let event_id_var = getId event_obj
     let event_id = name event_id_var
     let Just event_id_exp = lookup "id" (declarations event_obj)
     let effect_type = if is_hide then "hidden_effect" else "complete_reward" 
@@ -213,7 +216,7 @@ newEventFollowingFocus (EventFollowedType is_hide days) focus_obj event = do
 addFocusPrerequisites :: Focus -> [Focus] -> Focus
 addFocusPrerequisites focus_obj prerequisites = foldl
      (\acc f -> 
-            addInField acc "prerequisite" ("focus", idToExp $ getId f)
+            addInField acc "prerequisite" ("focus", varToExp $ getId f)
         ) focus_obj prerequisites
 
 -- 设置前置国策的同时设置国策位置偏移为 x = focus_tree_x_dis, y = focus_tree_y_dis
@@ -222,8 +225,8 @@ setUniquePrerequisites focus_obj prerequisite = focus_obj{
     declarations = declarations focus_obj ++ [
         ("x", FromValueIntExp $ RawStaticalValue focus_tree_x_dis),
         ("y", FromValueIntExp $ RawStaticalValue focus_tree_y_dis),
-        ("prerequisite", idToExp $ getId prerequisite),
-        ("relative_position_id", idToExp $ getId prerequisite)
+        ("prerequisite", varToExp $ getId prerequisite),
+        ("relative_position_id", varToExp $ getId prerequisite)
     ]
 }
 

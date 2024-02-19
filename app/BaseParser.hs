@@ -11,6 +11,7 @@ import Text.Megaparsec.Char as C
 import Text.Megaparsec 
 import Data.Text (Text, pack, unpack)
 import Data.Map (Map) 
+import Data.String (IsString(..))
 import Control.Monad.Identity (Identity)
 import Control.Monad(liftM)
 import Control.Monad.Trans.State.Lazy (StateT)
@@ -80,6 +81,9 @@ lexeme = L.lexeme allSpace
 type Undetermined = ()
 newtype Identifier = Text Text deriving (Show, Eq, Ord)
 type Key = Identifier
+instance IsString Identifier where
+    fromString = Text . pack
+
 stringToIdentifier :: String -> Identifier
 stringToIdentifier = Text . pack
 textToIdentifier :: Text -> Identifier
