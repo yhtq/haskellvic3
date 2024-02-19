@@ -11,6 +11,7 @@ import Text.Megaparsec.Char as C
 import Text.Megaparsec 
 import Data.Text (Text, pack, unpack)
 import Data.Map (Map) 
+import Prettyprinter(Pretty(..))
 import Data.String (IsString(..))
 import Control.Monad.Identity (Identity)
 import Control.Monad(liftM)
@@ -83,7 +84,8 @@ newtype Identifier = Text Text deriving (Show, Eq, Ord)
 type Key = Identifier
 instance IsString Identifier where
     fromString = Text . pack
-
+instance Pretty Identifier where
+    pretty (Text s) = pretty s
 stringToIdentifier :: String -> Identifier
 stringToIdentifier = Text . pack
 textToIdentifier :: Text -> Identifier
@@ -105,7 +107,7 @@ type Desc = Text
 data Var = Var {
     name :: Identifier,
     varType :: Text
-} deriving (Show)
+} deriving (Show, Eq)
 data Color = Color {
     colorType :: Text,
     colorValue :: [ValueFloat]

@@ -106,7 +106,7 @@ class ParadoxObject a where
     updateField obj field exp = case lookup field (declarations $ toObjectInList obj) of
         Just _ -> modifyField obj field (const exp)
         Nothing -> appendDeclaration obj (field, exp)
-instance (ParadoxObject a) => ParadoxPrintable a where 
+instance {-# OVERLAPPABLE #-}  (ParadoxObject a) => ParadoxPrintable a where 
     printParadox obj = printParadox $ toObjectInList obj
 
 instance ParadoxObject Focus where 
