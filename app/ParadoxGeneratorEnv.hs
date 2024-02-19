@@ -49,15 +49,18 @@ newtype NewsEvent = NewsEvent ObjectInList
 newtype Focus = Focus ObjectInList
 focus_tree_x_dis = 0
 focus_tree_y_dis = 1
-untypedVar :: Text -> Var
+untypedVar :: Identifier -> Var
 untypedVar t = Var {
     name = t,
     varType = ""
 }
 
-__getId :: ObjectInList -> Text
+untypedVarText :: Text -> Var
+untypedVarText = untypedVar . textToIdentifier
+
+__getId :: ObjectInList -> Var
 __getId focus = case lookup "id" (declarations focus) of
-    Just (FromVar v) -> name v
+    Just (FromVar v) -> v
     _ -> error "getID: No id in object"
 -- 在某个 Object 的 Object 子项中添加一个字段，如果子项不存在则创建，如果子项存在则添加。请不要在有重名子项时使用
 __addInField :: ObjectInList -> Key -> (Key, Exp) -> ObjectInList
@@ -75,8 +78,8 @@ class ParadoxObject a where
     fromObjectInList :: ObjectInList -> a
     toObjectInList :: a -> ObjectInList
     -- 从 ID 生成一个对象
-    newObjFromId :: Text -> a
-    getID :: a -> Text
+    newObjFromId :: Var -> a
+    getID :: a -> Var
     getID = __getId . toObjectInList
     appendDeclaration ::  (ParadoxObject a) => a -> (Key, Exp) -> a
     appendDeclaration obj (k, v) = fromObjectInList $ (toObjectInList obj) {
@@ -111,7 +114,7 @@ instance ParadoxObject Focus where
     toObjectInList (Focus obj) = obj
     newObjFromId id = Focus $ ObjectInList {
         obj_name = "focus",
-        declarations = [("id", idToExp id)]
+        declarations = [("id", varToExp id)]
     }
 
 class (ParadoxObject a) => Event a where
@@ -122,7 +125,7 @@ instance ParadoxObject CountryEvent where
     toObjectInList (CountryEvent obj) = obj
     newObjFromId id = CountryEvent $ ObjectInList {
         obj_name = "country_event",
-        declarations = [("id", idToExp id)]
+        declarations = [("id", varToExp id)]
     }
 
 instance ParadoxObject NewsEvent where
@@ -130,7 +133,7 @@ instance ParadoxObject NewsEvent where
     toObjectInList (NewsEvent obj) = obj
     newObjFromId id = NewsEvent $ ObjectInList {
         obj_name = "news_event",
-        declarations = [("id", idToExp id)]
+        declarations = [("id", varToExp id)]
     }
 
 instance Event CountryEvent where
@@ -147,16 +150,19 @@ unnameedObject d = ObjectInList {
 objectExp :: [(Key, Exp)] -> Exp
 objectExp = FromObjectInList . unnameedObject
 
-lookupID :: (ParadoxObject a) => Text -> [a] -> Maybe a
+lookupID :: (ParadoxObject a) => Var -> [a] -> Maybe a
 lookupID id = foldl (\acc f -> if getID f == id then Just f else acc) Nothing
 
-updateID :: (ParadoxObject a) => Text -> (a -> a) -> [a] -> [a]
+updateID :: (ParadoxObject a) => Var -> (a -> a) -> [a] -> [a]
 updateID id f l = case lookupID id l of
     Just focus -> map (\f' -> if getID f' == id then f focus else f') l
     Nothing -> l
 
-idToExp :: Text -> Exp
-idToExp id = FromVar $ untypedVar id
+varToExp :: Var -> Exp
+varToExp v = FromVar v
+
+untypedIDToExp :: Text -> Exp
+untypedIDToExp t = varToExp $ untypedVar $ textToIdentifier t
 
 updateKV :: (Eq k) => k -> v -> [(k, v)] -> [(k, v)]
 updateKV k v l = map (\(k', v') -> if k' == k then (k, v) else (k', v')) l
@@ -228,15 +234,15 @@ newEvent (BaseEvent namespace title desc options) = do
     toLocaldefault event_title title
     toLocaldefault event_desc desc
     sequence $ zipWith toLocaldefault event_options options
-    let base_obj = newObjFromId event_name
+    let base_obj = newObjFromId  $ untypedVarText event_name
     let obj1 = appendDeclarations base_obj [
-            ("id", idToExp event_name),
-            ("title", idToExp event_title),
-            ("#", idToExp title), -- 添加注释
-            ("desc", idToExp event_desc)
+            ("id", untypedIDToExp event_name),
+            ("title", untypedIDToExp event_title),
+            ("#", untypedIDToExp title), -- 添加注释
+            ("desc", untypedIDToExp event_desc)
             ]
     return $ appendDeclarations obj1 (map (\i -> ("option", 
-            objectExp [("name", idToExp i)]
+            objectExp [("name", untypedIDToExp i)]
         )) event_options)
 
 data BaseFocus = BaseFocus {
@@ -257,10 +263,10 @@ newFocus :: (MonadLocalization m) => BaseFocus -> m Focus
 newFocus (BaseFocus id name desc ai_will_do cost cancel_if_invalid continue_if_invalid available_if_capitulated) = do
     toLocaldefault id name
     toLocaldefault (id `append` "_desc") desc
-    return $ newObjFromId id `appendDeclarations` [
-        ("name", idToExp id),
-        ("#", idToExp name), -- 添加注释
-        ("desc", idToExp $ id `append` "_desc"),
+    return $ (newObjFromId $ untypedVarText id) `appendDeclarations` [
+        ("name", untypedIDToExp id),
+        ("#", untypedIDToExp name), -- 添加注释
+        ("desc", untypedIDToExp $ id `append` "_desc"),
         ("ai_will_do", FromObjectInList ai_will_do),
         ("cost", FromValueIntExp $ RawStaticalValue cost),
         ("cancel_if_invalid", FromConstBoolExp cancel_if_invalid),
@@ -280,12 +286,12 @@ newEventFollowingFocus (EventFollowedType is_hide days) focus_obj event = do
     let event_id = getID event_obj
     let effect_type = if is_hide then "hidden_effect" else "complete_reward" 
     return (addInField focus_obj effect_type (
-        event_type_text @a,
+        textToIdentifier $ event_type_text @a,
         FromObjectInList $ if not (days == 0) then unnameedObject [
-            ("id", idToExp event_id),
+            ("id", varToExp event_id),
             ("days", FromValueIntExp $ RawStaticalValue days)
         ] else unnameedObject [
-            ("id", idToExp event_id)
+            ("id", varToExp event_id)
         ]
         ), event_obj)
 
@@ -293,18 +299,19 @@ newEventFollowingFocus (EventFollowedType is_hide days) focus_obj event = do
 addFocusPrerequisites :: Focus -> [Focus] -> Focus
 addFocusPrerequisites focus_obj prerequisites = foldl
      (\acc f -> 
-            addInField acc "prerequisite" ("focus", idToExp $ getID f)
+            addInField acc "prerequisite" ("focus", varToExp $ getID f)
         ) focus_obj prerequisites
 
 -- 设置前置国策的同时设置国策位置偏移为 x = focus_tree_x_dis, y = focus_tree_y_dis
 setUniquePrerequisites :: Focus -> Focus -> Focus
 setUniquePrerequisites focus_obj prerequisite = 
-    let obj = updateField focus_obj "prerequisite" (objectExp [("focus", idToExp $ getID prerequisite)])
+    let obj = updateField focus_obj "prerequisite" (objectExp [("focus", varToExp $ getID prerequisite)])
     in 
         obj `appendDeclarations` [
         ("x", FromValueIntExp $ RawStaticalValue focus_tree_x_dis),
         ("y", FromValueIntExp $ RawStaticalValue focus_tree_y_dis),
-        ("relative_position_id", idToExp $ getID prerequisite)
+        ("prerequisite", varToExp $ getID prerequisite),
+        ("relative_position_id", varToExp $ getID prerequisite)
     ]
 
 
