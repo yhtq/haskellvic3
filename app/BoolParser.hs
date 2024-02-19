@@ -7,7 +7,7 @@ module BoolParser(
 import Prelude hiding (exp)
 import BaseParser
 import UnTypedNumExpParser (parseValueUntypedNumExp, parseValueIntExp, parseValueFloatExp)
-import Text.Parsec (choice, many1, (<|>), try, optionMaybe)
+import Text.Megaparsec 
 import Data.Text (unpack, pack)
 import Control.Monad ((>=>))
 -- 由于实际的BoolExp提供了直接并列的语法糖故这里需要稍微写一下

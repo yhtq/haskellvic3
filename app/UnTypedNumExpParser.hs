@@ -1,5 +1,6 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 module UnTypedNumExpParser(
     parseValueIntExp,
     parseValueFloatExp,
@@ -11,11 +12,13 @@ module UnTypedNumExpParser(
 import Prelude hiding (exp)
 import BaseParser
 import qualified Data.Text as DT
-import Text.Parsec ( chainl, option, (<|>), getState, optionMaybe, try, modifyState, char, notFollowedBy )
+import Text.Megaparsec
+import Text.Megaparsec.Char (char)
 import Data.Text (pack, Text)
 import Control.Monad.Trans.Class(lift)
 import Control.Monad.State.Class(get, put)
 import Control.Monad.State.Lazy(StateT, runStateT)
+
 
 -- 这里的 flag 用于标记当前的解析器是解析Int还是Float，规则为在同一个表达式中，所有字面值都是整数则为Int，否则为Float
 type ParadoxUntypedNumParser = StatedParadoxParser NumTypeFlag
@@ -88,28 +91,28 @@ parseValueNumExp = do
 parseValueNumRaw :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
 parseValueNumRaw = do
     valType <- get
-    let parser = getParser valType
-    result <-  optionMaybe (try $ (lift parser))
+    let parser = (getParser :: s -> ParadoxParser a) valType
+    result <-  lift $ optionMaybe (try parser)
     case result of
         Just value -> return (RawStaticalValue value)
         Nothing ->
             if isInt valType
             then do
-                result2 <- optionMaybe parseNotLiteralNum
+                result2 <- lift $ optionMaybe parseNotLiteralNum
                 case result2 of
                     Just value -> return value
                     Nothing -> do
                         -- 这里不需要再Maybe了，若失败理应直接报错
-                        let floatParser = getParser (setFloat valType)
-                        resultfloat <- floatParser
-                        modifyState setFloat
+                        let floatParser = (getParser :: s -> ParadoxParser a) (setFloat valType)
+                        resultfloat <- lift floatParser
+                        put (setFloat valType)
                         return (RawStaticalValue resultfloat)
-            else parseNotLiteralNum
+            else lift parseNotLiteralNum
 parseValueNumExpBlock :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
 parseValueNumExpBlock = do
-    parseReserved "{"
+    lift $ parseReserved "{"
     exp <- parseValueNumExp'
-    parseReserved "}"
+    lift $ parseReserved "}"
     return exp
 parseAppendValueNumExp :: (ValueNum a, StateFlag s, DynamicParser a s)
                             => (StatedParadoxParser s (Maybe (AppendingValueExp a), Text))

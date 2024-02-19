@@ -1,10 +1,13 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# HLINT ignore "Use <$>" #-}
 {-# LANGUAGE TemplateHaskell #-}
 module BaseParser where
 import Prelude hiding (exp)
 -- import qualified Text.MegaParsec.Token as Tok
-import Text.Megaparsec.Char.Lexer as L
+import  Text.Megaparsec.Char.Lexer  qualified as L
+import Text.Megaparsec.Char as C
+import Text.Megaparsec 
 import Data.Text (Text, pack, unpack)
 import Data.Map (Map) 
 import Control.Monad.Identity (Identity)
@@ -13,37 +16,64 @@ import Control.Monad.Trans.State.Lazy (StateT)
 import Template ( expGen )
 -- import Text.MegaParsec.Token (GenTokenParser(stringLiteral))
 import Language.Haskell.TH (mkName)
-import Data.Maybe (fromMaybe)
 data NumTypeFlag = Int | Float deriving (Show, Eq)
-type ParadoxLanguage s = Tok.GenLanguageDef Text s Identity
-type ParadoxParser = ParsecT Text () Identity
+-- type ParadoxLanguage s = Tok.GenLanguageDef Text s Identity
+type ParadoxParser = StateT () (Parsec () Text)
 type StatedParadoxParser s = StateT s ParadoxParser
 
-paradoxLanguage :: ParadoxLanguage s
-paradoxLanguage = emptyDef {
-    Tok.commentStart = "",
-    Tok.commentEnd = "",
-    Tok.commentLine = "#",
-    Tok.nestedComments = True,
-    Tok.identStart = letter <|> char '@',
-    Tok.identLetter = alphaNum <|> char '_' ,
-    Tok.opStart = oneOf "<>=?",
-    Tok.opLetter = oneOf "<>=",
-    Tok.reservedNames = ["if", "else", "else_if", "limit", "switch", "while", 
-        "error_check", "severity",
-        "yes", "no", 
-        "AND", "OR", "NOT", "NOR", "NAND", 
-        "value", "add", "multiply", "subtract", "divide", "min", "max", "modulo",
-        "round", "ceiling", "floor", "round_to",
-        "desc", 
-        "{", "}",
-        "hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360",
-        ":",
-        "@["] ,
-    Tok.reservedOpNames = ["<=", ">=", "<", ">", "==", "?=", "!=", "="],
-    Tok.caseSensitive = True
+-- paradoxLanguage :: ParadoxLanguage s
+-- paradoxLanguage = emptyDef {
+--     Tok.commentStart = "",
+--     Tok.commentEnd = "",
+--     Tok.commentLine = "#",
+--     Tok.nestedComments = True,
+--     Tok.identStart = letter <|> char '@',
+--     Tok.identLetter = alphaNum <|> char '_' ,
+--     Tok.opStart = oneOf "<>=?",
+--     Tok.opLetter = oneOf "<>=",
+--     Tok.reservedNames = ["if", "else", "else_if", "limit", "switch", "while", 
+--         "error_check", "severity",
+--         "yes", "no", 
+--         "AND", "OR", "NOT", "NOR", "NAND", 
+--         "value", "add", "multiply", "subtract", "divide", "min", "max", "modulo",
+--         "round", "ceiling", "floor", "round_to",
+--         "desc", 
+--         "{", "}",
+--         "hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360",
+--         ":",
+--         "@["] ,
+--     Tok.reservedOpNames = ["<=", ">=", "<", ">", "==", "?=", "!=", "="],
+--     Tok.caseSensitive = True
 
-}
+-- }
+reservedNames :: [Text]
+reservedNames = ["if", "else", "else_if", "limit", "switch", "while", 
+         "error_check", "severity",
+         "yes", "no", 
+         "AND", "OR", "NOT", "NOR", "NAND", 
+         "value", "add", "multiply", "subtract", "divide", "min", "max", "modulo",
+         "round", "ceiling", "floor", "round_to",
+         "desc", 
+         "{", "}",
+         "hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360",
+         ":",
+         "@["] 
+reservedChecker :: Text -> Bool
+reservedChecker = (`elem` reservedNames)
+reservedOpNames :: [Text]
+reservedOpNames = ["<=", ">=", "<", ">", "==", "?=", "!=", "="]
+reservedOpChecker :: Text -> Bool
+reservedOpChecker = (`elem` reservedOpNames)
+comment :: ParadoxParser ()
+comment = L.skipLineComment ("#")
+commentBlock :: ParadoxParser ()
+commentBlock = L.skipBlockCommentNested ("/*") ("*/")
+spaceConsumer :: ParadoxParser ()
+spaceConsumer = C.space1
+allSpace :: ParadoxParser ()
+allSpace = L.space spaceConsumer comment commentBlock
+lexeme :: ParadoxParser a -> ParadoxParser a
+lexeme = L.lexeme allSpace
 
 -- 类型定义
 type Undetermined = ()
@@ -53,6 +83,9 @@ stringToIdentifier :: String -> Identifier
 stringToIdentifier = Text . pack
 textToIdentifier :: Text -> Identifier
 textToIdentifier = Text
+tokenToIdentifier :: Token Text -> Identifier
+tokenToIdentifier = Text . pack . show
+
 identifierToString :: Identifier -> String
 identifierToString (Text s) = unpack s
 identifierToText :: Identifier -> Text
@@ -287,42 +320,66 @@ liftToExp :: (Monad m, Term a) => m a -> m Exp
 liftToExp = liftM toExp
 
 -- parser
-lexer :: GenTokenParser Text s Identity
-lexer = Tok.makeTokenParser paradoxLanguage
-lexeme :: ParsecT Text s Identity a -> ParsecT Text s Identity a
-lexeme = Tok.lexeme lexer
-symbol :: String -> ParsecT Text s Identity String
-symbol = Tok.symbol lexer
-braces :: ParsecT Text s Identity a -> ParsecT Text s Identity a
-braces = Tok.braces lexer
-convertToText :: (Monad m) => (a -> m String) -> (a -> m Text)
-convertToText f = fmap pack.f
 
+
+-- lexer :: GenTokenParser Text s Identity
+-- lexer = Tok.makeTokenParser paradoxLanguage
+-- lexeme :: ParsecT Text s Identity a -> ParsecT Text s Identity a
+-- lexeme = Tok.lexeme lexer
+-- symbol :: String -> ParsecT Text s Identity String
+-- symbol = Tok.symbol lexer
+-- braces :: ParsecT Text s Identity a -> ParsecT Text s Identity a
+-- braces = Tok.braces lexer
+
+optionMaybe :: ParadoxParser a -> ParadoxParser (Maybe a)
+optionMaybe = option Nothing . fmap Just
+parseAnyTokens :: ParadoxParser Text
+parseAnyTokens =  (lexeme.(fmap pack))
+  ((:) <$> letterChar <*> many alphaNumChar <?> "tokens")
 parseIntWithSpaceLeft :: ParadoxParser ValueInt
-parseIntWithSpaceLeft = L.integer lexer
+parseIntWithSpaceLeft = L.signed allSpace L.decimal
 parseInt :: ParadoxParser ValueInt
 parseInt = lexeme parseIntWithSpaceLeft
 parseFloatWithSpaceLeft :: ParadoxParser ValueFloat
-parseFloatWithSpaceLeft = try (Tok.float lexer) <|> fmap fromIntegral parseIntWithSpaceLeft
+parseFloatWithSpaceLeft = try (L.signed allSpace L.float) <|> fmap fromIntegral parseIntWithSpaceLeft
 parseFloat :: ParadoxParser ValueFloat
 parseFloat = lexeme parseFloatWithSpaceLeft
 parseUntypedNum :: ParadoxParser ValueUntypedNum
-parseUntypedNum = try (fmap ValueFloat $ Tok.float lexer) <|> fmap ValueInt parseInt
+parseUntypedNum = try (fmap ValueFloat $ L.signed allSpace L.float) <|> fmap ValueInt parseInt
 parseWhiteSpaces :: ParadoxParser ()
-parseWhiteSpaces = Tok.whiteSpace lexer
+parseWhiteSpaces = allSpace
+parseAnyReserved :: ParadoxParser Identifier
+parseAnyReserved = lexeme $ do
+    name <- foldl (<|>) empty (map  (fmap textToIdentifier . chunk) reservedNames)
+    notFollowedBy alphaNumChar
+    return name
 parseIdentifier :: ParadoxParser Identifier
-parseIdentifier = lexeme $
-    fmap stringToIdentifier (Tok.identifier lexer)
-parseReserved :: String -> ParadoxParser ()
-parseReserved = lexeme.Tok.reserved lexer
-parseReservedWithReturn :: String -> ParadoxParser Text
+parseIdentifier = lexeme $ do
+    name <- parseAnyTokens
+    if name `elem` reservedNames then
+        fail $ "unexpected reserved word " ++ show name
+    else
+        return $ textToIdentifier name
+parseReserved :: Text -> ParadoxParser ()
+parseReserved reserved_name 
+    | reservedChecker reserved_name =
+        lexeme $ do
+        _ <- chunk reserved_name
+        notFollowedBy alphaNumChar
+        return ()
+    | otherwise = undefined
+        
+parseReservedWithReturn :: Text -> ParadoxParser Text
 parseReservedWithReturn str = do
-    parseReserved str
-    return $ pack str
-parseReservedOp :: String -> ParadoxParser ()
-parseReservedOp = lexeme.Tok.reservedOp lexer
+    _ <- parseReserved str
+    return str
+parseReservedOp :: Text -> ParadoxParser ()
+parseReservedOp str
+    | reservedOpChecker str = chunk str >> notFollowedBy alphaNumChar
+    | otherwise = undefined
+-- parse Literal
 parseText :: ParadoxParser Text
-parseText = lexeme $ fmap pack (stringLiteral lexer)
+parseText = (lexeme . (fmap pack)) $ char '"' >> manyTill L.charLiteral (char '"')
 parseColor :: ParadoxParser Color
 parseColor = do
     colorType <- choice $ map parseReservedWithReturn ["hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360"]
@@ -332,13 +389,12 @@ parseColor = do
     return $ Color colorType colorValue
 parseVar :: ParadoxParser Var 
 parseVar = do
-    vartype <- optionMaybe $ try $ do 
+    vartype <- option "" $ do 
         typeText <- parseIdentifier
         parseReservedOp ":"
         return $ identifierToText typeText
-    let vartype2 = fromMaybe (pack "") (vartype)
     name <- parseIdentifier
-    return $ Var name vartype2
+    return $ Var name vartype
 identifierToVar :: Identifier -> Var
 identifierToVar s = Var s (pack "")
 
