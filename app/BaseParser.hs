@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# HLINT ignore "Use <$>" #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 module BaseParser where
 import Prelude hiding (exp)
 -- import qualified Text.MegaParsec.Token as Tok
@@ -205,7 +206,9 @@ data CmpOp = Less | Greater | LessEq | GreaterEq | Eq | NotEq deriving (Show)
 data BoolNot = Not deriving (Show)
 
 -- 这里BoolExp是指出现在 limits 块中的完整表达式，ConstBoolExp 是出现在声明中的右值表达式
-data BoolExp = BoolOp BoolOp [BoolExp] | 
+-- 注意默认情况下多个BoolExp是And的关系
+data BoolExp =  AndList [BoolExp] |
+                BoolOp BoolOp [BoolExp] | 
                 BoolOp' BoolNot BoolExp | 
                 IntCmp CmpOp ValueIntExp ValueIntExp |
                 FloatCmp CmpOp ValueFloatExp ValueFloatExp |
@@ -249,7 +252,10 @@ expGen [ ''ValueUntypedNumExp,
         ''Text, 
         ''Identifier,
         mkName "Object",
-        ''Groups ]   -- 由于顺序问题这里两个涉及间接递归的类型似乎只能 mkName
+        mkName "ObjectInList",
+        ''Groups,
+        ''BoolExp
+         ]   -- 由于顺序问题这里两个涉及间接递归的类型似乎只能 mkName
 
 -- 用模板实现了下面的代码
 -- data Exp = FromValueUntypedNumExp ValueUntypedNumExp | 
@@ -311,6 +317,11 @@ data Object = Object {
     obj_name :: Identifier,
     declarations :: DefinitionMap   -- 定义object时给出的属性
 } deriving (Show)
+data ObjectInList = ObjectInList {
+    obj_name :: Text,
+    declarations :: [(Key, Exp)]   -- 定义object时给出的属性
+} deriving (Show)
+
 type Effect = Object
 type Effects = [Effect]
 type ScopeMap = Map Identifier Text
