@@ -5,7 +5,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 module ParadoxGeneratorEnv (
-    Event,
+    CountryEvent(..),
+    NewsEvent(..),
     Focus,
     untypedVar,
     BaseEvent(..),
@@ -27,27 +28,29 @@ module ParadoxGeneratorEnv (
     printGlobalEnv,
     InitGlobalState,
     runPrintFocusTree,
-    FocusTree(..)
+    FocusTree(..),
+    ai_will_do_single_factor
 )
 where
-import Data.Text(Text, pack, justifyLeft, cons, append, singleton, justifyRight)
-import GHC.IO.Encoding (getLocaleEncoding)
+import Prelude hiding (exp, id)
+import Data.Text(Text, pack, append, singleton, justifyRight)
 import Data.Map(Map)
 import Data.List(uncons)
 import BasePrinter
 import qualified Data.Map as Map
 import Control.Monad(when)
-import Control.Monad.State (StateT, State, get, put, evalState, evalStateT, runState)
+import Control.Monad.State (StateT, get, put, evalStateT, runState)
 import Control.Monad.Trans (lift)
 import Control.Monad.Identity (Identity)
-import Text.Show.Unicode (uprint)
-import Prettyprinter (Doc, Pretty(pretty), (<+>), indent, line, lbrace, rbrace, vsep, equals, dquotes)
+import Prettyprinter (Doc, Pretty(pretty), (<+>), vsep, equals, dquotes)
 import BaseParser hiding (Object(..))
 
 newtype CountryEvent = CountryEvent ObjectInList
 newtype NewsEvent = NewsEvent ObjectInList
 newtype Focus = Focus ObjectInList
+focus_tree_x_dis :: ValueInt
 focus_tree_x_dis = 0
+focus_tree_y_dis :: ValueInt
 focus_tree_y_dis = 1
 untypedVar :: Identifier -> Var
 untypedVar t = Var {
@@ -58,10 +61,10 @@ untypedVar t = Var {
 untypedVarText :: Text -> Var
 untypedVarText = untypedVar . textToIdentifier
 
-__getId :: ObjectInList -> Var
-__getId focus = case lookup "id" (declarations focus) of
+__getId :: Identifier -> ObjectInList -> Var
+__getId key obj = case lookup key (declarations obj) of
     Just (FromVar v) -> v
-    _ -> error "getID: No id in object"
+    _ -> error ("getID: No " ++ show key ++ "in obj")
 -- 在某个 Object 的 Object 子项中添加一个字段，如果子项不存在则创建，如果子项存在则添加。请不要在有重名子项时使用
 __addInField :: ObjectInList -> Key -> (Key, Exp) -> ObjectInList
 __addInField ori_obj@(ObjectInList _ declarations) field item = case lookup field declarations of
@@ -77,10 +80,18 @@ __addInField ori_obj@(ObjectInList _ declarations) field item = case lookup fiel
 class ParadoxObject a where
     fromObjectInList :: ObjectInList -> a
     toObjectInList :: a -> ObjectInList
-    -- 从 ID 生成一个对象
+    -- 该类型对象声明中的名称，例如 focus, country_event
+    obj_dec_name :: TokenType
+    -- id 字段名称
+    idFieldName :: Identifier
+    -- 从 ID 生成一个对象，自动填充 ID 字段
     newObjFromId :: Var -> a
+    newObjFromId id = fromObjectInList ObjectInList {
+        obj_name = obj_dec_name @a,
+        declarations = [(idFieldName @a, varToExp id)]
+    }
     getID :: a -> Var
-    getID = __getId . toObjectInList
+    getID = __getId (idFieldName @a) . toObjectInList
     appendDeclaration ::  (ParadoxObject a) => a -> (Key, Exp) -> a
     appendDeclaration obj (k, v) = fromObjectInList $ (toObjectInList obj) {
         declarations = declarations (toObjectInList obj) ++ [(k, v)]
@@ -94,7 +105,7 @@ class ParadoxObject a where
     lookupField :: (ParadoxObject a) => a -> Key -> Maybe Exp
     lookupField obj field = lookup field (declarations $ toObjectInList obj)
     lookupFields :: (ParadoxObject a) => a -> Key -> [Exp]
-    lookupFields obj field = let l1 = filter (\(k, v) -> k == field) (declarations $ toObjectInList obj) in
+    lookupFields obj field = let l1 = filter (\(k, _) -> k == field) (declarations $ toObjectInList obj) in
         map snd l1
     -- 注意这会更新所有同名字段，若字段不存在则不会更新
     modifyField :: (ParadoxObject a) => a -> Key -> (Exp -> Exp) -> a
@@ -112,10 +123,8 @@ instance {-# OVERLAPPABLE #-}  (ParadoxObject a) => ParadoxPrintable a where
 instance ParadoxObject Focus where 
     fromObjectInList = Focus
     toObjectInList (Focus obj) = obj
-    newObjFromId id = Focus $ ObjectInList {
-        obj_name = "focus",
-        declarations = [("id", varToExp id)]
-    }
+    obj_dec_name = "focus"
+    idFieldName = "name"
 
 class (ParadoxObject a) => Event a where
     event_type_text :: Text 
@@ -123,18 +132,14 @@ class (ParadoxObject a) => Event a where
 instance ParadoxObject CountryEvent where 
     fromObjectInList = CountryEvent
     toObjectInList (CountryEvent obj) = obj
-    newObjFromId id = CountryEvent $ ObjectInList {
-        obj_name = "country_event",
-        declarations = [("id", varToExp id)]
-    }
+    obj_dec_name = "country_event"
+    idFieldName = "id"
 
 instance ParadoxObject NewsEvent where
     fromObjectInList = NewsEvent
     toObjectInList (NewsEvent obj) = obj
-    newObjFromId id = NewsEvent $ ObjectInList {
-        obj_name = "news_event",
-        declarations = [("id", varToExp id)]
-    }
+    obj_dec_name = "news_event"
+    idFieldName = "id"
 
 instance Event CountryEvent where
     event_type_text = "country_event"
@@ -230,13 +235,12 @@ newEvent (BaseEvent namespace title desc options) = do
     let event_title = event_name `append` ".t"
     let event_desc = event_name `append` ".d"
     when (length options > (length options_seq))  (error "Too many options")
-    let event_options = zipWith (\i t -> event_name `append` "." `append` i) options_seq options
+    let event_options = zipWith (\i _ -> event_name `append` "." `append` i) options_seq options
     toLocaldefault event_title title
     toLocaldefault event_desc desc
-    sequence $ zipWith toLocaldefault event_options options
+    _ <- sequence $ zipWith toLocaldefault event_options options
     let base_obj = newObjFromId  $ untypedVarText event_name
     let obj1 = appendDeclarations base_obj [
-            ("id", untypedIDToExp event_name),
             ("title", untypedIDToExp event_title),
             ("#", untypedIDToExp title), -- 添加注释
             ("desc", untypedIDToExp event_desc)
@@ -264,7 +268,6 @@ newFocus (BaseFocus id name desc ai_will_do cost cancel_if_invalid continue_if_i
     toLocaldefault id name
     toLocaldefault (id `append` "_desc") desc
     return $ (newObjFromId $ untypedVarText id) `appendDeclarations` [
-        ("name", untypedIDToExp id),
         ("#", untypedIDToExp name), -- 添加注释
         ("desc", untypedIDToExp $ id `append` "_desc"),
         ("ai_will_do", FromObjectInList ai_will_do),

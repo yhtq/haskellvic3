@@ -1,4 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 module BoolParser(
     parseBoolExps,
     parseConstBoolExp,
@@ -6,18 +8,19 @@ module BoolParser(
 ) where
 import Prelude hiding (exp)
 import BaseParser
-import UnTypedNumExpParser (parseValueUntypedNumExp, parseValueIntExp, parseValueFloatExp)
+import UnTypedNumExpParser (parseValueIntExp, parseValueFloatExp)
 import Text.Megaparsec 
-import Data.Text (unpack, pack)
+import Data.Text (unpack, pack, Text)
+import qualified Data.Set as Set
 import Control.Monad ((>=>))
 -- 由于实际的BoolExp提供了直接并列的语法糖故这里需要稍微写一下
 parseBoolExps :: ParadoxParser BoolExp
 parseBoolExps = do
-    exps <- many1 parseBoolExp
+    exps <- some parseBoolExp
     return (BoolOp And exps)
 parseBoolExp :: ParadoxParser BoolExp
 parseBoolExp = do
-    parseBoolOp <|> parseBoolOp' <|> parseCmp @ValueUntypedNum <|> parseQ <|> parseScopeTrans
+    parseBoolOp <|> parseBoolOp' <|> parseCmpUntyped <|> parseQ <|> parseScopeTrans
 parseConstBoolExp :: ParadoxParser ConstBoolExp
 parseConstBoolExp = parseBoolRaw
 parseBoolOp :: ParadoxParser BoolExp
@@ -25,7 +28,7 @@ parseBoolOp = do
     op <- choice $ map parseReservedWithReturn ["AND", "OR", "NOR", "NAND"]
     let opConstructor = boolOpMap $ unpack op
     parseReservedOp "="
-    exps <- braces $ many1 parseBoolExp
+    exps <- braces $ some parseBoolExp
     return (BoolOp opConstructor exps)
 parseBoolOp' :: ParadoxParser BoolExp
 parseBoolOp' = do
@@ -43,20 +46,21 @@ instance Cmp ValueInt where
     toBoolExp = IntCmp
 instance Cmp ValueFloat where
     parseExp :: ParadoxParser (ValueExp ValueFloat)
-    toBoolExp :: CmpOp -> ValueExp ValueFloat -> ValueExp ValueFloat -> BoolExp
     parseExp = parseValueFloatExp
+    toBoolExp :: CmpOp -> ValueExp ValueFloat -> ValueExp ValueFloat -> BoolExp
     toBoolExp = FloatCmp
-instance Cmp ValueUntypedNum where
-    parseExp :: ParadoxParser (ValueExp ValueUntypedNum)
-    parseExp = parseValueUntypedNumExp
-    toBoolExp :: CmpOp -> ValueExp ValueUntypedNum -> ValueExp ValueUntypedNum -> BoolExp
-    toBoolExp = UntypedNumCmp
+
+parseCmpOp :: ParadoxParser Text
+parseCmpOp = choice $ map parseReservedWithReturn ["<=", ">=", "<", ">", "?=", "!=", "=="]
+
+parseCmpUntyped :: ParadoxParser BoolExp
+parseCmpUntyped = failure Nothing (Set.singleton $ textToErrorItem "暂未完成")
 
 -- 注意下面的函数多态是有歧义的，必须指定类型才能使用
 parseCmp :: forall a.(ValueNum a, Cmp a) => ParadoxParser BoolExp
 parseCmp = try $ do
     exp1 <- parseExp @a
-    op <- choice $ map parseReservedWithReturn ["<=", ">=", "<", ">", "?=", "!=", "=="]
+    op <- parseCmpOp
     exp2 <- parseExp @a
     let opConstructor = cmpOpMap $ unpack op
     return (toBoolExp opConstructor exp1 exp2)
@@ -98,7 +102,7 @@ parseErrorCheck = do
     return $ ErrorCheck sever exp
 parsePossibleExp :: ParadoxParser PossibleExp
 parsePossibleExp = do
-    braces $ fmap WithErrorCheck (many1 parseErrorCheck) <|> fmap Possible parseBoolExp
+    braces $ fmap WithErrorCheck (some parseErrorCheck) <|> fmap Possible parseBoolExp
 
 
 

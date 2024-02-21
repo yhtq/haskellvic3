@@ -9,20 +9,25 @@ import Prelude hiding (exp)
 import  Text.Megaparsec.Char.Lexer  qualified as L
 import Text.Megaparsec.Char as C
 import Text.Megaparsec 
-import Data.Text (Text, pack, unpack)
+import Data.Text (Text, pack, unpack, append)
 import Data.Map (Map) 
+import Data.Set (singleton)
 import Prettyprinter(Pretty(..))
 import Data.String (IsString(..))
-import Control.Monad.Identity (Identity)
+import Data.List.NonEmpty (fromList)
 import Control.Monad(liftM)
+import Data.Void(Void)
 import Control.Monad.Trans.State.Lazy (StateT)
-import Template ( expGen )
+import TemplateExp ( expGen )
 -- import Text.MegaParsec.Token (GenTokenParser(stringLiteral))
 import Language.Haskell.TH (mkName)
 data NumTypeFlag = Int | Float deriving (Show, Eq)
+type TokenType = Text
+type ErrorType = Void
+type GlobalState = ()
 -- type ParadoxLanguage s = Tok.GenLanguageDef Text s Identity
-type ParadoxParser = StateT () (Parsec () Text)
-type StatedParadoxParser s = StateT s ParadoxParser
+type ParadoxParser  = StateT GlobalState (Parsec ErrorType TokenType)
+type StatedParadoxParser s  = StateT s (ParadoxParser)
 
 -- paradoxLanguage :: ParadoxLanguage s
 -- paradoxLanguage = emptyDef {
@@ -51,7 +56,7 @@ type StatedParadoxParser s = StateT s ParadoxParser
 -- }
 reservedNames :: [Text]
 reservedNames = ["if", "else", "else_if", "limit", "switch", "while", 
-         "error_check", "severity",
+     --    "error_check", "severity",
          "yes", "no", 
          "AND", "OR", "NOT", "NOR", "NAND", 
          "value", "add", "multiply", "subtract", "divide", "min", "max", "modulo",
@@ -67,15 +72,15 @@ reservedOpNames :: [Text]
 reservedOpNames = ["<=", ">=", "<", ">", "==", "?=", "!=", "="]
 reservedOpChecker :: Text -> Bool
 reservedOpChecker = (`elem` reservedOpNames)
-comment :: ParadoxParser ()
+comment :: (MonadParsec e TokenType m) => m ()
 comment = L.skipLineComment ("#")
-commentBlock :: ParadoxParser ()
+commentBlock :: (MonadParsec e TokenType m) => m ()
 commentBlock = L.skipBlockCommentNested ("/*") ("*/")
-spaceConsumer :: ParadoxParser ()
+spaceConsumer :: (MonadParsec e TokenType m) => m ()
 spaceConsumer = C.space1
-allSpace :: ParadoxParser ()
+allSpace :: (MonadParsec e TokenType m) => m ()
 allSpace = L.space spaceConsumer comment commentBlock
-lexeme :: ParadoxParser a -> ParadoxParser a
+lexeme :: (MonadParsec e TokenType m) => m a -> m a
 lexeme = L.lexeme allSpace
 
 -- 类型定义
@@ -295,20 +300,20 @@ expGen [ ''ValueUntypedNumExp,
 --    toExp = FromObject
 
 class ValueNum a where
-    parseNum :: ParadoxParser a
+    parseNum :: (MonadParsec e TokenType m) => m a
     -- toValueExp :: a -> ValueExp a
     -- toValueExp = RawStaticalValue
     defaultValue :: a
 instance ValueNum ValueInt where
-    parseNum :: ParadoxParser ValueInt
+    parseNum :: (MonadParsec e TokenType m) => m ValueInt
     parseNum = parseInt
     defaultValue = 0 
 instance ValueNum ValueFloat where
-    parseNum :: ParadoxParser ValueFloat
+    parseNum :: (MonadParsec e TokenType m) => m ValueFloat
     parseNum = parseFloat
     defaultValue = 0.0
 instance ValueNum ValueUntypedNum where
-    parseNum :: ParadoxParser ValueUntypedNum
+    parseNum :: (MonadParsec e TokenType m) => m ValueUntypedNum
     parseNum = parseUntypedNum
     defaultValue = ValueInt 0
 data Switch = Switch {
@@ -335,7 +340,8 @@ type DefinitionMap = Map Identifier Exp
 type Limit = BoolExp
 liftToExp :: (Monad m, Term a) => m a -> m Exp 
 liftToExp = liftM toExp
-
+textToErrorItem :: Text -> ErrorItem (Token Text)
+textToErrorItem = Tokens . fromList . unpack
 -- parser
 
 
@@ -348,73 +354,83 @@ liftToExp = liftM toExp
 -- braces :: ParsecT Text s Identity a -> ParsecT Text s Identity a
 -- braces = Tok.braces lexer
 
-optionMaybe :: ParadoxParser a -> ParadoxParser (Maybe a)
-optionMaybe = option Nothing . fmap Just
-parseAnyTokens :: ParadoxParser Text
+optionMaybe :: (MonadParsec e TokenType m) => m a -> m (Maybe a)
+optionMaybe p = option Nothing $ try (
+    do 
+        res <- p
+        return $ Just res
+    )
+parseAnyTokens :: (MonadParsec e TokenType m) => m Text
 parseAnyTokens =  (lexeme.(fmap pack))
-  ((:) <$> letterChar <*> many alphaNumChar <?> "tokens")
-parseIntWithSpaceLeft :: ParadoxParser ValueInt
-parseIntWithSpaceLeft = L.signed allSpace L.decimal
-parseInt :: ParadoxParser ValueInt
+  ((:) <$> letterChar <*> many (alphaNumChar <|> char '_') <?> "tokens")
+parseIntWithSpaceLeft :: (MonadParsec e TokenType m) => m ValueInt
+parseIntWithSpaceLeft = do
+    res <- L.signed allSpace L.decimal
+    notFollowedBy (char '.')
+    return res
+parseInt :: (MonadParsec e TokenType m) => m ValueInt
 parseInt = lexeme parseIntWithSpaceLeft
-parseFloatWithSpaceLeft :: ParadoxParser ValueFloat
+parseFloatWithSpaceLeft :: (MonadParsec e TokenType m) => m ValueFloat
 parseFloatWithSpaceLeft = try (L.signed allSpace L.float) <|> fmap fromIntegral parseIntWithSpaceLeft
-parseFloat :: ParadoxParser ValueFloat
+parseFloat :: (MonadParsec e TokenType m) => m ValueFloat
 parseFloat = lexeme parseFloatWithSpaceLeft
-parseUntypedNum :: ParadoxParser ValueUntypedNum
+parseUntypedNum :: (MonadParsec e TokenType m) => m ValueUntypedNum
 parseUntypedNum = try (fmap ValueFloat $ L.signed allSpace L.float) <|> fmap ValueInt parseInt
-parseWhiteSpaces :: ParadoxParser ()
+parseWhiteSpaces :: (MonadParsec e TokenType m) => m ()
 parseWhiteSpaces = allSpace
-parseAnyReserved :: ParadoxParser Identifier
+parseAnyReserved :: (MonadParsec e TokenType m) => m Identifier
 parseAnyReserved = lexeme $ do
     name <- foldl (<|>) empty (map  (fmap textToIdentifier . chunk) reservedNames)
     notFollowedBy alphaNumChar
     return name
-parseIdentifier :: ParadoxParser Identifier
-parseIdentifier = lexeme $ do
+parseIdentifier :: (MonadParsec e TokenType m) => m Identifier
+parseIdentifier = lexeme $ try $ do
     name <- parseAnyTokens
     if name `elem` reservedNames then
-        fail $ "unexpected reserved word " ++ show name
+        failure (Just $ textToErrorItem name) (singleton $ textToErrorItem $ ("unexpected reserved word " `append` name))
     else
         return $ textToIdentifier name
-parseReserved :: Text -> ParadoxParser ()
+parseReserved :: (MonadParsec e TokenType m) => Text -> m ()
 parseReserved reserved_name 
     | reservedChecker reserved_name =
         lexeme $ do
         _ <- chunk reserved_name
         notFollowedBy alphaNumChar
         return ()
-    | otherwise = undefined
+    | otherwise = failure (Just $ textToErrorItem reserved_name) (singleton $ textToErrorItem $ ("unexpected reserved word " `append` reserved_name))
         
-parseReservedWithReturn :: Text -> ParadoxParser Text
+parseReservedWithReturn :: (MonadParsec e TokenType m) => Text -> m Text
 parseReservedWithReturn str = do
     _ <- parseReserved str
     return str
-parseReservedOp :: Text -> ParadoxParser ()
+parseReservedOp :: (MonadParsec e TokenType m) => Text -> m ()
 parseReservedOp str
-    | reservedOpChecker str = chunk str >> notFollowedBy alphaNumChar
-    | otherwise = undefined
+    | reservedOpChecker str = lexeme $ chunk str >> notFollowedBy alphaNumChar
+    | otherwise = failure (Just $ textToErrorItem str) (singleton $ textToErrorItem $ ("unexpected reserved operator " `append` str))
 -- parse Literal
-parseText :: ParadoxParser Text
+parseText :: (MonadParsec e TokenType m) => m Text
 parseText = (lexeme . (fmap pack)) $ char '"' >> manyTill L.charLiteral (char '"')
-parseColor :: ParadoxParser Color
-parseColor = do
+parseColor :: (MonadParsec e TokenType m) => m Color
+parseColor = lexeme $ do
     colorType <- choice $ map parseReservedWithReturn ["hsv", "HSV", "rgb", "RGB", "hsv360", "HSV360"]
     parseReservedOp "{"
     colorValue <- sepBy parseFloatWithSpaceLeft parseWhiteSpaces
     parseReservedOp "}"
     return $ Color colorType colorValue
-parseVar :: ParadoxParser Var 
-parseVar = do
+parseVar :: (MonadParsec e TokenType m) => m Var 
+parseVar = lexeme $ do
     vartype <- option "" $ do 
         typeText <- parseIdentifier
         parseReservedOp ":"
         return $ identifierToText typeText
     name <- parseIdentifier
     return $ Var name vartype
+braces :: (MonadParsec e TokenType m) => m a -> m a
+braces = between (parseReservedOp "{") (parseReservedOp "}")
 identifierToVar :: Identifier -> Var
 identifierToVar s = Var s (pack "")
 
-
+chainl :: (MonadParsec e TokenType m) => m a -> m (a -> a -> a) -> a -> m a
+chainl p op a = (foldl (\x f -> f x) a) <$> (many (flip <$> op <*> p))
     
     

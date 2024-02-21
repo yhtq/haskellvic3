@@ -1,23 +1,25 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Parser
 (
     parseObjects,
-    runTestParser
+    runTestParser,
+    parseExp,
+    parseDeclaration,
+    defaultKeyParserMap
 ) where
 import Prelude hiding (exp, lookup)
 import BaseParser
 import UnTypedNumExpParser ( parseValueUntypedNumExp, valueUntypedNumFloatSimplify, valueUntypedNumIntSimplify )
-import Text.Parsec
-import qualified Text.Parsec.Token as Tok
-import Data.Text (Text)
-import qualified Data.Text as DT
+import Text.Megaparsec
+import Data.Text ()
 import Data.Map (Map, lookup, fromListWithKey, fromList)
-import BoolParser (parseConstBoolExp, parseBoolExps, parsePossibleExp)
+import BoolParser (parseConstBoolExp)
 import Data.Maybe (fromMaybe)
+import Control.Monad.State (runStateT)
 parseObject' :: Maybe Identifier -> ParadoxParser Object
-parseObject' optionalName = do
-    parseWhiteSpaces
+parseObject' optionalName = lexeme $ do
     name <- case optionalName of
         Nothing -> do
             name <- parseIdentifier
@@ -35,27 +37,26 @@ parseObject' optionalName = do
 parseObject :: ParadoxParser Object
 parseObject = parseObject' Nothing
 parseObjects :: ParadoxParser [Object]
-parseObjects = do
+parseObjects = lexeme $ do
     parseWhiteSpaces
-    many1 parseObject
+    some parseObject
 
 -- 若有特殊关键字则直接制导到对应的Parser
-type KeyParserMap = Map Key (ParadoxParser Exp)
-defaultParser :: ParadoxParser Exp
+type KeyParserMap = Map Key (Identifier -> ParadoxParser Exp)
+defaultParser :: Identifier -> ParadoxParser Exp
 defaultParser = parseExp
 defaultKeyParserMap :: KeyParserMap
 defaultKeyParserMap = fromList [
-        (stringToIdentifier "possible", liftToExp parsePossibleExp)
     ]
 
 getParser :: Key -> KeyParserMap -> ParadoxParser Exp
-getParser key parserMap = fromMaybe defaultParser (lookup key parserMap)
+getParser key parserMap = fromMaybe (defaultParser) (lookup key parserMap) key
 
 parseDeclaration :: KeyParserMap -> ParadoxParser Declaration
 parseDeclaration parserMap = do
     key <- parseIdentifier
     parseReservedOp "="
-    value <- getParser key parserMap <|> liftToExp (parseObject' $ Just key)
+    value <- (getParser key parserMap) <|> liftToExp (parseObject' $ Just key)
     return $ Declaration key value
 --parseValueExpWithLabel :: ParadoxUntypedNumParser Exp
 --parseValueExpWithLabel = do
@@ -66,30 +67,30 @@ parseDeclaration parserMap = do
     -- <|> parseBoolExp <|> parseVarExp <|> parseColorExp <|> parseText
 parseValueExp :: ParadoxParser Exp
 parseValueExp = do
-    setState Int
-    exp <- try parseValueUntypedNumExp
-    state <- getState
-    let newValueExp = if state == Float then FromValueFloatExp $ valueUntypedNumFloatSimplify exp else FromValueIntExp $ valueUntypedNumIntSimplify exp
+    (exp, flag) <- parseValueUntypedNumExp
+    let newValueExp = if flag == Float then FromValueFloatExp $ valueUntypedNumFloatSimplify exp else FromValueIntExp $ valueUntypedNumIntSimplify exp
     return newValueExp
 parseGroups :: ParadoxParser Groups
-parseGroups = try $ do
+parseGroups =  do
     parseReserved "{"
-    groups <- many1 parseIdentifier
+    groups <- some parseIdentifier
     parseReserved "}"
     return groups
-parseExp :: ParadoxParser Exp
-parseExp = do
-    liftToExp parseGroups
-    <|> parseExpBlock
-    <|> liftToExp parseIdentifier
-    <|> liftToExp parseText
+parseExp :: Identifier -> ParadoxParser Exp
+parseExp key = foldl1 (<|>) $ map try [
+    liftToExp parseGroups,
+    liftToExp parseIdentifier,
+    liftToExp parseText,
     -- 由于重叠问题（ValueExp也可以由字面文本或者关键字构成），这里先尝试直接解析留到后面处理
-    <|> parseValueExp
-    -- <|> liftToExp parseVar 
-    <|> liftToExp parseColor
-    <|> liftToExp parseConstBoolExp
+    parseValueExp,
+    -- , liftToExp parseVar 
+    liftToExp parseColor,
+    liftToExp parseConstBoolExp,
+    liftToExp (parseObject' $ Just key)]
     -- parseBoolExp <|> parseColorExp 
-parseExpBlock :: ParadoxParser Exp
-parseExpBlock = Tok.braces lexer parseExp
-runTestParser :: ParadoxParser a -> Text -> Either ParseError a
-runTestParser p = runParser p Int ""
+-- parseExpBlock :: ParadoxParser Exp
+-- parseExpBlock = braces parseExp
+runTestParser :: GlobalState -> ParadoxParser a -> TokenType -> (Either (ParseErrorBundle TokenType ErrorType) a)
+runTestParser s p t = do
+    (res, _) <- runParser (runStateT p s) "" t 
+    return res

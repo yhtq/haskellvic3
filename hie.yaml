@@ -1,0 +1,22 @@
+cradle:
+  cabal:
+    - path: "app"
+      component: "vic3-mod:test:test"
+
+    - path: "test"
+      component: "vic3-mod:test:test"
+
+    - path: "app/Main.hs"
+      component: "vic3-mod:exe:profile"
+
+    - path: "app/Main.hs"
+      component: "vic3-mod:exe:debug"
+
+    - path: "app/PrinterMain.hs"
+      component: "vic3-mod:exe:print"
+
+    - path: "app/BasePrinter.hs"
+      component: "vic3-mod:exe:print"
+
+    - path: "app/ParadoxGeneratorEnv.hs"
+      component: "vic3-mod:exe:print"

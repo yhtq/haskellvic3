@@ -36,17 +36,21 @@ test_focus = ObjectInList {
 }
 
 
-test_event :: GlobalEnv ObjectInList
+test_event :: GlobalEnv CountryEvent
 test_event = newEvent $ BaseEvent {
     namespace = "test",
-    event_type = CountryEvent,
     title = "测试标题",
     desc = "简介",
     options = ["选项1", "选项2"]
 }
 
-test_event2 :: GlobalEnv [ObjectInList]
-test_event2 = sequence $ replicate 2 test_event
+test_events2 :: GlobalEnv [NewsEvent]
+test_events2 = sequence $ replicate 4 (newEvent $ BaseEvent {
+    namespace = "test_news",
+    title = "测试标题",
+    desc = "简介",
+    options = ["选项1", "选项2"]
+})
 
 default_base_focus :: BaseFocus
 default_base_focus = BaseFocus {
@@ -87,20 +91,21 @@ test_focus3 = newFocus $ default_base_focus{
 focus3_finish_event :: BaseEvent
 focus3_finish_event = BaseEvent {
     namespace = "chi",
-    event_type = CountryEvent,
     title = "测试国策3完成",
     desc = "测试国策3完成描述",
     options = ["选项1", "选项2"]
 }
 
 
-final_tree :: GlobalEnv ([Focus], [Event])
+final_tree :: GlobalEnv ([Focus], [CountryEvent], [NewsEvent])
 final_tree = do
     focus1 <- test_focus1
     focus2 <- test_focus2
     focus3 <- test_focus3
-    (focus3', event) <- newEventFollowingFocus (EventFollowedType False 10) focus3 focus3_finish_event
-    return (lineUpFocus [focus1, focus2, focus3'], [event])
+    (focus3', event) <- newEventFollowingFocus @CountryEvent (EventFollowedType False 10) focus3 focus3_finish_event
+    test_event'<- test_event
+    test_events2' <- test_events2
+    return (lineUpFocus [focus1, focus2, focus3'], [event, test_event'], test_events2')
 
 emptyInitState :: InitGlobalState
 emptyInitState = (Map.empty, Map.empty)

@@ -1,6 +1,9 @@
 {-# LANGUAGE TemplateHaskell, FlexibleInstances #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
-module Template where
+module TemplateExp (
+    expGen
+)
+where
 import Language.Haskell.TH
     ( mkName,
       Q,
@@ -10,13 +13,10 @@ import Language.Haskell.TH
       Name,
       nameBase,
       Bang(Bang),
-      newName,
       SourceStrictness(NoSourceStrictness),
       SourceUnpackedness(NoSourceUnpackedness), DerivClause (DerivClause), Exp (ConE), Pat (VarP) )
 --import Control.Monad.Cont (MonadTrans(lift))
 import Control.Monad
-newtype A = A Int
-newtype B = B Int
 
 getConstructor :: Name -> Con
 getConstructor name = do

@@ -54,7 +54,8 @@ common base_depends
         template-haskell,
         prettyprinter,
         unicode-show,
-        unordered-containers
+        unordered-containers,
+        parser-combinators
     other-modules:
         Paths_vic3_mod
     autogen-modules:
@@ -73,13 +74,14 @@ common test_depends
         -- falsify,
 common other_modules
     other-modules:
+        TemplateExp,
         BaseParser,
-        Template,
         TypedNumExpParser,
         UnTypedNumExpParser,
         BoolParser,
         Parser,
-        ParadoxGeneratorEnv
+        ParadoxGeneratorEnv,
+        BasePrinter
 
 test-suite test
     import: debug
@@ -126,7 +128,8 @@ executable print
     import: base_depends
     import: other_modules
     other-modules:
-        BasePrinter
+        BasePrinter,
+        ParadoxGeneratorEnv
     main-is: PrinterMain.hs
     hs-source-dirs:   app
     default-language: GHC2021

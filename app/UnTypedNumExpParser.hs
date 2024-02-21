@@ -13,15 +13,16 @@ import Prelude hiding (exp)
 import BaseParser
 import qualified Data.Text as DT
 import Text.Megaparsec
-import Text.Megaparsec.Char (char)
+import Text.Megaparsec.Char ()
 import Data.Text (pack, Text)
 import Control.Monad.Trans.Class(lift)
 import Control.Monad.State.Class(get, put)
-import Control.Monad.State.Lazy(StateT, runStateT)
-
+import Control.Monad.State.Lazy(runStateT)
+import Control.Monad ()
 
 -- 这里的 flag 用于标记当前的解析器是解析Int还是Float，规则为在同一个表达式中，所有字面值都是整数则为Int，否则为Float
 type ParadoxUntypedNumParser = StatedParadoxParser NumTypeFlag
+
 newtype IntOnlyFlag = IntOnlyFlag ()
 newtype FloatOnlyFlag = FloatOnlyFlag ()
 class StateFlag s where
@@ -69,20 +70,15 @@ instance StateFlag FloatOnlyFlag where
 instance DynamicParser ValueUntypedNum NumTypeFlag where
     getParser :: NumTypeFlag -> ParadoxParser ValueUntypedNum
     getParser Int =  fmap ValueInt parseInt
-    getParser Float = fmap ValueFloat (parseFloat)
+    getParser Float = fmap ValueFloat parseFloat
 instance DynamicParser ValueInt IntOnlyFlag where
     getParser :: IntOnlyFlag -> ParadoxParser ValueInt
-    getParser _ =  parseInt' :: ParadoxParser ValueInt
+    getParser _ =  parseInt :: ParadoxParser ValueInt
 instance DynamicParser ValueFloat FloatOnlyFlag where
     getParser :: FloatOnlyFlag -> ParadoxParser ValueFloat
     getParser _ =  parseFloat :: ParadoxParser ValueFloat
 -- parseUntypedNumExp :: ParadoxParser ValueUntypedNumExp
 -- parseUntypedNumExp = parseValueNumExp :: ParadoxParser ValueUntypedNumExp
-parseInt' :: ParadoxParser ValueInt
-parseInt' = try $ do
-    int <- parseInt
-    notFollowedBy (char '.')
-    return int
 parseNotLiteralNum :: (ValueNum a) => ParadoxParser (ValueExp a)
 parseNotLiteralNum = fmap RawIdentifier parseIdentifier <|> fmap RawScriptedValue parseText
 parseValueNumExp :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
@@ -91,8 +87,8 @@ parseValueNumExp = do
 parseValueNumRaw :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
 parseValueNumRaw = do
     valType <- get
-    let parser = (getParser :: s -> ParadoxParser a) valType
-    result <-  lift $ optionMaybe (try parser)
+    let parser = getParser valType
+    result <- lift $ optionMaybe parser
     case result of
         Just value -> return (RawStaticalValue value)
         Nothing ->
@@ -103,16 +99,16 @@ parseValueNumRaw = do
                     Just value -> return value
                     Nothing -> do
                         -- 这里不需要再Maybe了，若失败理应直接报错
-                        let floatParser = (getParser :: s -> ParadoxParser a) (setFloat valType)
+                        let floatParser = getParser (setFloat valType)
                         resultfloat <- lift floatParser
                         put (setFloat valType)
                         return (RawStaticalValue resultfloat)
             else lift parseNotLiteralNum
 parseValueNumExpBlock :: (ValueNum a, StateFlag s, DynamicParser a s) => StatedParadoxParser s (ValueExp a)
 parseValueNumExpBlock = do
-    lift $ parseReserved "{"
+    parseReserved "{"
     exp <- parseValueNumExp'
-    lift $ parseReserved "}"
+    parseReserved "}"
     return exp
 parseAppendValueNumExp :: (ValueNum a, StateFlag s, DynamicParser a s)
                             => (StatedParadoxParser s (Maybe (AppendingValueExp a), Text))
@@ -135,7 +131,7 @@ parseAppendValueNumExp = do
                                     <|> (do
                                             parseReserved "desc"
                                             parseReservedOp "="
-                                            desc <- parseText
+                                            desc <- lift parseText
                                             return (Nothing, desc)
                                         )
                             let concatAppending a1 a2 = case (a1, a2) of
@@ -145,6 +141,7 @@ parseAppendValueNumExp = do
                                     (Just ea1, Just (ExpAppending op2 exp2)) -> Just (ExpAppendings ea1 op2 exp2)
                                     _ -> undefined -- 理应不出现
                             let concatWithDesc (a1, desc1) (a2, desc2) = (concatAppending a1 a2, desc1 <> desc2)
+                            -- (f, desc) <- foldl (>>=) (return (Nothing, pack "")) (replicate 2 append)
                             (f, desc) <- chainl append (return concatWithDesc) (Nothing, pack "")
                             return (f, desc)
 
@@ -181,7 +178,5 @@ parseValueFloatExp :: ParadoxParser (ValueExp ValueFloat)
 parseValueFloatExp = do
     (res, _) <- runStateT parseValueNumExp (FloatOnlyFlag ())
     return res
-parseValueUntypedNumExp :: ParadoxParser (ValueExp ValueUntypedNum)
-parseValueUntypedNumExp = do
-    (res, _) <- runStateT parseValueNumExp (Int)
-    return res
+parseValueUntypedNumExp :: ParadoxParser (ValueExp ValueUntypedNum, NumTypeFlag)
+parseValueUntypedNumExp = runStateT parseValueNumExp (Int)
