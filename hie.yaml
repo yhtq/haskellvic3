@@ -20,3 +20,21 @@ cradle:
 
     - path: "app/ParadoxGeneratorEnv.hs"
       component: "vic3-mod:exe:print"
+
+    - path: "app/URGMain.hs"
+      component: "vic3-mod:exe:URG"
+
+    - path: "URG/URGMain.hs"
+      component: "vic3-mod:exe:URG"
+
+    - path: "app/BasePrinter.hs"
+      component: "vic3-mod:exe:URG"
+
+    - path: "app/ParadoxGeneratorEnv.hs"
+      component: "vic3-mod:exe:URG"
+
+    - path: "URG/BasePrinter.hs"
+      component: "vic3-mod:exe:URG"
+
+    - path: "URG/ParadoxGeneratorEnv.hs"
+      component: "vic3-mod:exe:URG"

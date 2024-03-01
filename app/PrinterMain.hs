@@ -36,7 +36,7 @@ test_focus = ObjectInList {
 }
 
 
-test_event :: GlobalEnv CountryEvent
+test_event :: EventEnv CountryEvent
 test_event = newEvent $ BaseEvent {
     namespace = "test",
     title = "测试标题",
@@ -44,7 +44,7 @@ test_event = newEvent $ BaseEvent {
     options = ["选项1", "选项2"]
 }
 
-test_events2 :: GlobalEnv [NewsEvent]
+test_events2 :: EventEnv [NewsEvent]
 test_events2 = sequence $ replicate 4 (newEvent $ BaseEvent {
     namespace = "test_news",
     title = "测试标题",
@@ -64,7 +64,7 @@ default_base_focus = BaseFocus {
     focus_available_if_capitulated = BoolRaw Yes
 }
 
-test_focus1 :: GlobalEnv Focus
+test_focus1 :: EventEnv Focus
 test_focus1 = newFocus $ default_base_focus{
     focus_id = "test_focus1",
     focus_name = "测试国策1",
@@ -72,7 +72,7 @@ test_focus1 = newFocus $ default_base_focus{
     focus_cost = 3
 }
 
-test_focus2 :: GlobalEnv Focus
+test_focus2 :: EventEnv Focus
 test_focus2 = newFocus $ default_base_focus{
     focus_id = "test_focus2",
     focus_name = "测试国策2",
@@ -80,7 +80,7 @@ test_focus2 = newFocus $ default_base_focus{
     focus_cost = 3
 }
 
-test_focus3 :: GlobalEnv Focus
+test_focus3 :: EventEnv Focus
 test_focus3 = newFocus $ default_base_focus{
     focus_id = "test_focus3",
     focus_name = "测试国策3",
@@ -97,7 +97,7 @@ focus3_finish_event = BaseEvent {
 }
 
 
-final_tree :: GlobalEnv ([Focus], [CountryEvent], [NewsEvent])
+final_tree :: EventEnv ([Focus], [CountryEvent], [NewsEvent])
 final_tree = do
     focus1 <- test_focus1
     focus2 <- test_focus2

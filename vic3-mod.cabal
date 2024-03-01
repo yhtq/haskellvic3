@@ -55,7 +55,9 @@ common base_depends
         prettyprinter,
         unicode-show,
         unordered-containers,
-        parser-combinators
+        parser-combinators,
+        directory,
+        filepath
     other-modules:
         Paths_vic3_mod
     autogen-modules:
@@ -132,6 +134,21 @@ executable print
         ParadoxGeneratorEnv
     main-is: PrinterMain.hs
     hs-source-dirs:   app
+    default-language: GHC2021
+
+executable URG
+    import: base_depends
+    import: other_modules
+    build-depends:
+        raw-strings-qq
+    other-modules:
+        BasePrinter,
+        ParadoxGeneratorEnv,
+        Utilities
+    main-is: URGMain.hs
+    hs-source-dirs:   
+        app
+        URG
     default-language: GHC2021
 
 

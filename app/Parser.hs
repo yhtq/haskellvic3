@@ -7,7 +7,9 @@ module Parser
     runTestParser,
     parseExp,
     parseDeclaration,
-    defaultKeyParserMap
+    defaultKeyParserMap,
+    parseDeclarations,
+    runSingleParser
 ) where
 import Prelude hiding (exp, lookup)
 import BaseParser
@@ -26,14 +28,16 @@ parseObject' optionalName = lexeme $ do
             parseReservedOp "="
             return name
         Just name -> return name 
+    -- 这里注意如果已经传入了 name 就不再写一遍了
+    let nameOfObj = if (optionalName == Nothing) then name else "" 
     parseReserved "{"
     declarations <- many $ parseDeclaration defaultKeyParserMap
     parseReserved "}"
-    let buildMap f = fromListWithKey f.map (\(Declaration k v) -> (k, return v :: ParadoxParser Exp))
+    let buildMap f = fromListWithKey f.map (\(k, v) -> (k, return v :: ParadoxParser Exp))
     let errorReport k _ _ = fail $ "duplicate key: " ++ identifierToString k
     let declarationsMapParse = sequence $ buildMap errorReport declarations
     declarationsMap <- declarationsMapParse
-    return $ Object name declarationsMap
+    return $ Object nameOfObj declarationsMap
 parseObject :: ParadoxParser Object
 parseObject = parseObject' Nothing
 parseObjects :: ParadoxParser [Object]
@@ -57,7 +61,7 @@ parseDeclaration parserMap = do
     key <- parseIdentifier
     parseReservedOp "="
     value <- (getParser key parserMap) <|> liftToExp (parseObject' $ Just key)
-    return $ Declaration key value
+    return $ (key, value)
 --parseValueExpWithLabel :: ParadoxUntypedNumParser Exp
 --parseValueExpWithLabel = do
 --    liftToExp $ 
@@ -65,6 +69,10 @@ parseDeclaration parserMap = do
     -- <|>
     -- liftToExp parseValueFloatExp 
     -- <|> parseBoolExp <|> parseVarExp <|> parseColorExp <|> parseText
+parseDeclarations :: ParadoxParser [Declaration]
+parseDeclarations = do
+    parseWhiteSpaces
+    some $ parseDeclaration defaultKeyParserMap
 parseValueExp :: ParadoxParser Exp
 parseValueExp = do
     (exp, flag) <- parseValueUntypedNumExp
@@ -94,3 +102,9 @@ runTestParser :: GlobalState -> ParadoxParser a -> TokenType -> (Either (ParseEr
 runTestParser s p t = do
     (res, _) <- runParser (runStateT p s) "" t 
     return res
+runSingleParser :: ParadoxParser a -> TokenType -> a
+runSingleParser p t = do
+    let res = runTestParser initState p t
+    case res of
+        Left e -> error $ errorBundlePretty e
+        Right r -> r

@@ -8,6 +8,7 @@ import Prelude hiding (exp)
 -- import qualified Text.MegaParsec.Token as Tok
 import  Text.Megaparsec.Char.Lexer  qualified as L
 import Text.Megaparsec.Char as C
+import Numeric
 import Text.Megaparsec 
 import Data.Text (Text, pack, unpack, append)
 import Data.Map (Map) 
@@ -91,13 +92,14 @@ instance IsString Identifier where
     fromString = Text . pack
 instance Pretty Identifier where
     pretty (Text s) = pretty s
+initState :: GlobalState
+initState = ()
 stringToIdentifier :: String -> Identifier
 stringToIdentifier = Text . pack
 textToIdentifier :: Text -> Identifier
 textToIdentifier = Text
 tokenToIdentifier :: Token Text -> Identifier
 tokenToIdentifier = Text . pack . show
-
 identifierToString :: Identifier -> String
 identifierToString (Text s) = unpack s
 identifierToText :: Identifier -> Text
@@ -157,6 +159,10 @@ opMap "ceiling" = Ceiling
 opMap "floor" = Floor
 opMap "round_to" = RoundTo
 opMap _ = undefined
+
+-- 打印浮点数时保留的小数位数
+floatPrintingNumber :: Int
+floatPrintingNumber = 3
 
 -- 在以下定义中，可以认为以Exp结尾的均为出现在 "=" 右侧的表达式
 -- BoolExp 除外，它在一些特殊结构中以完整 "a = b" 形式出现
@@ -298,39 +304,54 @@ expGen [ ''ValueUntypedNumExp,
 --    toExp = FromVar
 --instance Term Object where
 --    toExp = FromObject
+type Dec = (Key, Exp)
+instance Term ValueBool where
+    toExp :: ValueBool -> Exp
+    toExp = FromConstBoolExp . BoolRaw
+instance Term ValueInt where
+    toExp :: ValueInt -> Exp
+    toExp = FromValueIntExp . RawStaticalValue
+instance Term ValueFloat where
+    toExp :: ValueFloat -> Exp
+    toExp = FromValueFloatExp . RawStaticalValue
 
-class ValueNum a where
+class  ValueNum a where
     parseNum :: (MonadParsec e TokenType m) => m a
     -- toValueExp :: a -> ValueExp a
     -- toValueExp = RawStaticalValue
     defaultValue :: a
+    printNum :: a -> Text
 instance ValueNum ValueInt where
     parseNum :: (MonadParsec e TokenType m) => m ValueInt
     parseNum = parseInt
     defaultValue = 0 
+    printNum :: ValueInt -> Text
+    printNum = pack . show
 instance ValueNum ValueFloat where
     parseNum :: (MonadParsec e TokenType m) => m ValueFloat
     parseNum = parseFloat
     defaultValue = 0.0
+    printNum :: ValueFloat -> Text
+    printNum x = pack $ showFFloat (Just floatPrintingNumber) x ""
 instance ValueNum ValueUntypedNum where
     parseNum :: (MonadParsec e TokenType m) => m ValueUntypedNum
     parseNum = parseUntypedNum
     defaultValue = ValueInt 0
+    printNum :: ValueUntypedNum -> Text
+    printNum (ValueInt x) = pack $ show x
+    printNum (ValueFloat x) = pack $ showFFloat (Just floatPrintingNumber) x ""
 data Switch = Switch {
     switch :: Key,
     cases :: [Exp]
 } deriving (Show) 
-data Declaration = Declaration {
-    key :: Key,
-    value :: Exp
-} deriving (Show)
+type Declaration = Dec
 data Object = Object {
     obj_name :: Identifier,
     declarations :: DefinitionMap   -- 定义object时给出的属性
 } deriving (Show)
 data ObjectInList = ObjectInList {
     obj_name :: Text,
-    declarations :: [(Key, Exp)]   -- 定义object时给出的属性
+    declarations :: [Dec]   -- 定义object时给出的属性
 } deriving (Show)
 
 type Effect = Object

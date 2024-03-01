@@ -1,0 +1,9 @@
+URG_gold_standard_abolished = {
+    name = URG_gold_standard_abolished
+    allowed = {
+        always = no
+    }
+    modifier = {
+        consumer_goods_factor = -0.100
+    }
+}
