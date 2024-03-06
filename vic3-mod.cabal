@@ -38,11 +38,13 @@ common profiling
         -O2 
         -fprof-auto
         "-with-rtsopts= -p -s -hT" 
+        -j
 
 common debug
     ghc-options: 
         -O0
         -Wall
+        -j
 common base_depends
     build-depends:    
         base,
@@ -139,6 +141,9 @@ executable print
 executable URG
     import: base_depends
     import: other_modules
+    ghc-options: 
+        -O0
+        -j
     build-depends:
         raw-strings-qq
     other-modules:

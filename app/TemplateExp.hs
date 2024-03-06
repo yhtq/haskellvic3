@@ -1,7 +1,8 @@
 {-# LANGUAGE TemplateHaskell, FlexibleInstances #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module TemplateExp (
-    expGen
+    expGen,
+    eeeeeeee
 )
 where
 import Language.Haskell.TH
@@ -40,6 +41,8 @@ expGen names = do
                 return $ InstanceD Nothing [] (AppT (ConT className) (ConT name1)) decs
     let concatM = liftM2 (++)
     foldl concatM (return []) [return [dataDeclaration], return classDeclaration, mapM instanceDeclaration names]
+eeeeeeee :: Int -> Int
+eeeeeeee x = x+1
 
     
     

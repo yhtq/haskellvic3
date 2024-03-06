@@ -135,9 +135,7 @@ newFocus' = newFocus @EventEnv
   ]
 }
 recover_from_economic_crisis :: Dec
-recover_from_economic_crisis = case uncons $ runParseDecs "URG_recover_from_economic_crisis = yes" of
-  Just (d, []) -> d
-  _ -> error "recover_from_economic_crisis parse error"
+recover_from_economic_crisis = runParseDec "URG_recover_from_economic_crisis = yes" 
 贱卖农产品 = (newFocus' $ focus_template {
   focus_id = "URG_sell_agricultural_products_at_low_price",
   focus_name = "贱卖农产品",
