@@ -149,7 +149,8 @@ executable URG
     other-modules:
         BasePrinter,
         ParadoxGeneratorEnv,
-        Utilities
+        Utilities,
+        URGCongress
     main-is: URGMain.hs
     hs-source-dirs:   
         app
